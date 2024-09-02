@@ -86,7 +86,7 @@ CXXFLAGS := -g -Wall -std=$(CXXVERSION) -I$(INCLUDE_DIR) -Wextra -MMD -MP
 # Linker flags
 LDFLAGS := -static-libstdc++
 # Link libraries, this will be append -l prefix automatically
-LDLIBS :=
+LDLIBS := vulkan-1 glfw3 gdi32
 
 
 # ---- Unchangeable ----
