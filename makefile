@@ -62,7 +62,6 @@ comma :=,
 ####################################################
 # Target file
 TARGET := learn_vulkan
-TARGET := $(call fixexecutable,$(TARGET))
 
 # CPP compiler
 CXX := g++
@@ -90,6 +89,7 @@ LDLIBS := vulkan-1 glfw3 gdi32
 
 
 # ---- Unchangeable ----
+override TARGET := $(call fixexecutable,$(TARGET))
 
 # Append directory to target file
 override BUILDTARGET := $(TARGET_DIR)/$(TARGET)
