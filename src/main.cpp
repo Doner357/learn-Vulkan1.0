@@ -9,6 +9,7 @@
 #include <vector>
 #include <algorithm>
 #include <cstring>
+#include <optional>
 
 // Window's width and height
 const uint32_t WIDTH  = 800;
@@ -54,6 +55,15 @@ void DestroyDebugUtilsMessengerEXT(
 }
 
 
+struct QueueFamilyIndices {
+    std::optional<uint32_t> graphics_family;
+
+    bool isComplete() {
+        return graphics_family.has_value();
+    }
+};
+
+
 class HelloTriangleApplication {
     public:
         void run() {
@@ -68,6 +78,7 @@ class HelloTriangleApplication {
         GLFWwindow*              window;          // GLFW provided window
         VkInstance               instance;        // The instance of Vulkan library
         VkDebugUtilsMessengerEXT debug_messenger; // Manually-handled debug messenger
+        VkPhysicalDevice         physical_device = VK_NULL_HANDLE; // Physical device like graphic card
 
         // Initialize GLFW window
         void initWindow() {
@@ -85,6 +96,7 @@ class HelloTriangleApplication {
         void initVulkan() {
             createInstance();
             setupDebugMessenger();
+            pickPhysicalDevice();
         }
 
         void mainLoop() {
@@ -98,7 +110,7 @@ class HelloTriangleApplication {
 
         void cleanup() {
             if (enable_validation_layers) {
-                //DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
+                DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
             }
 
             // Destroy Vulkan instance
@@ -112,6 +124,9 @@ class HelloTriangleApplication {
         }
 
 
+        //////////////////////////////////////////////////////
+        // Instance and debug utils messenger
+        //////////////////////////////////////////////////////
         void createInstance() {
             if (enable_validation_layers && !checkValidationLayerSupport()) {
                 throw std::runtime_error("validation layers requested, but not available!");
@@ -199,6 +214,22 @@ class HelloTriangleApplication {
             }
         }
 
+        std::vector<const char*> getRequiredExtensions() {
+            // GLFW has a handy built-in function that returns the extensions it needs
+            // to do that which we can pass to the struct.
+            uint32_t glfw_extension_count = 0;
+            const char** glfw_extensions;
+            glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
+
+            std::vector<const char*> extensions(glfw_extensions, glfw_extensions + glfw_extension_count);
+
+            if (enable_validation_layers) {
+                extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            }
+
+            return extensions;
+        }
+
         void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& create_info) {
             create_info = {};
             create_info.sType           = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
@@ -223,22 +254,6 @@ class HelloTriangleApplication {
             if (CreateDebugUtilsMessengerEXT(instance, &create_info, nullptr, &debug_messenger) != VK_SUCCESS) {
                 throw std::runtime_error("failed to set up debug messenger!");
             }
-        }
-
-        std::vector<const char*> getRequiredExtensions() {
-            // GLFW has a handy built-in function that returns the extensions it needs
-            // to do that which we can pass to the struct.
-            uint32_t glfw_extension_count = 0;
-            const char** glfw_extensions;
-            glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
-
-            std::vector<const char*> extensions(glfw_extensions, glfw_extensions + glfw_extension_count);
-
-            if (enable_validation_layers) {
-                extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-            }
-
-            return extensions;
         }
 
         // Check if all the required layers are available
@@ -277,6 +292,68 @@ class HelloTriangleApplication {
             std::cerr << "validation layer: " << pCallback_date->pMessage << std::endl;
 
             return VK_FALSE;
+        }
+
+
+        //////////////////////////////////////////////////////
+        // Physical device
+        //////////////////////////////////////////////////////
+        void pickPhysicalDevice() {
+            uint32_t device_count = 0;
+            vkEnumeratePhysicalDevices(instance, &device_count, nullptr);
+
+            if (device_count == 0) {
+                throw std::runtime_error("failed to find GPUs with Vulkan support!");
+            }
+
+            std::vector<VkPhysicalDevice> devices(device_count);
+            vkEnumeratePhysicalDevices(instance, &device_count, devices.data());
+
+            // Check if any of the physical devices meet the requirements
+            // that we will add to that function.
+            for (const auto& device : devices) {
+                if (isDeviceSuitable(device)) {
+                    physical_device = device;
+                    break;
+                }
+            }
+
+            if (physical_device == VK_NULL_HANDLE) {
+                throw std::runtime_error("failed to find a suitable GPU!");
+            }
+        }
+
+        // Check if the device is suitable
+        bool isDeviceSuitable(VkPhysicalDevice device) {
+            QueueFamilyIndices indices = findQueueFamilies(device);
+
+            return indices.isComplete();
+        }
+
+        // Find suitable queue family
+        QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+            QueueFamilyIndices indices;
+            // Logic to find queue family indices to populate struct with
+            uint32_t queue_family_count = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nullptr);
+
+            std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
+            vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, queue_families.data());
+
+            int i = 0;
+            for (const auto& queue_family : queue_families) {
+                if (queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                    indices.graphics_family = i;
+                }
+
+                if (indices.isComplete()) {
+                    break;
+                }
+
+                i++;
+            }
+
+            return indices;
         }
 };
 
