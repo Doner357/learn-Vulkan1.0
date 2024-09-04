@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstring>
 #include <optional>
+#include <set>
 
 // Window's width and height
 const uint32_t WIDTH  = 800;
@@ -57,9 +58,10 @@ void DestroyDebugUtilsMessengerEXT(
 
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphics_family;
+    std::optional<uint32_t> present_family;
 
     bool isComplete() {
-        return graphics_family.has_value();
+        return graphics_family.has_value() && present_family.has_value();
     }
 };
 
@@ -76,11 +78,18 @@ class HelloTriangleApplication {
     private:
         // Members
         GLFWwindow*              window;          // GLFW provided window
+
         VkInstance               instance;        // The instance of Vulkan library
         VkDebugUtilsMessengerEXT debug_messenger; // Manually-handled debug messenger
+        VkSurfaceKHR             surface;         // Surface extension for window, which is optional
+
+        // For Physical Device
         VkPhysicalDevice         physical_device = VK_NULL_HANDLE; // Physical device like graphic card
+
+        // For Logical Device
         VkDevice                 device;          // Logical Device. Important!
-        VkQueue                  graphics_queue;  // Queues along with logical device
+        VkQueue                  graphics_queue;  // Queues along with logical device (graphics)
+        VkQueue                  present_queue;   // Queues along with logical device (surface presentation)
 
         // Initialize GLFW window
         void initWindow() {
@@ -98,6 +107,7 @@ class HelloTriangleApplication {
         void initVulkan() {
             createInstance();
             setupDebugMessenger();
+            createSurface();
             pickPhysicalDevice();
             createLogicalDevice();
         }
@@ -118,6 +128,7 @@ class HelloTriangleApplication {
                 DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
             }
 
+            vkDestroySurfaceKHR(instance, surface, nullptr);
             // Destroy Vulkan instance
             vkDestroyInstance(instance, nullptr);
 
@@ -129,9 +140,9 @@ class HelloTriangleApplication {
         }
 
 
-        //////////////////////////////////////////////////////
-        // Instance and debug utils messenger
-        //////////////////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////
+        // Instance, Debug Utils Messenger, and also window surface
+        //////////////////////////////////////////////////////////////////
         void createInstance() {
             if (enable_validation_layers && !checkValidationLayerSupport()) {
                 throw std::runtime_error("validation layers requested, but not available!");
@@ -299,10 +310,17 @@ class HelloTriangleApplication {
             return VK_FALSE;
         }
 
+        // Get window's surface handle from glfw
+        void createSurface() {
+            if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create window surface!");
+            }
+        }
 
-        //////////////////////////////////////////////////////
+
+        //////////////////////////////////////////////////////////////////
         // Physical device
-        //////////////////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////
         void pickPhysicalDevice() {
             uint32_t device_count = 0;
             vkEnumeratePhysicalDevices(instance, &device_count, nullptr);
@@ -351,6 +369,14 @@ class HelloTriangleApplication {
                     indices.graphics_family = i;
                 }
 
+                // Check if queue family support presentation
+                VkBool32 present_support = false;
+                vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &present_support);
+
+                if (present_support) {
+                    indices.present_family = i;
+                }
+
                 if (indices.isComplete()) {
                     break;
                 }
@@ -362,29 +388,37 @@ class HelloTriangleApplication {
         }
 
 
-        //////////////////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////
         // Logical device
-        //////////////////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////
         void createLogicalDevice() {
             QueueFamilyIndices indices = findQueueFamilies(physical_device);
 
-             // influence the scheduling of command buffer execution using floating 
-             // point numbers between 0.0 and 1.0.
+            std::vector<VkDeviceQueueCreateInfo>  queue_create_infos;
+            std::set<uint32_t> unique_queue_families = {
+                indices.graphics_family.value(),
+                indices.present_family.value()
+            };
+
+            // influence the scheduling of command buffer execution using floating 
+            // point numbers between 0.0 and 1.0.
             float queue_priority = 1.0f;
-            
-            VkDeviceQueueCreateInfo queue_create_info{};
-            queue_create_info.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queue_create_info.queueFamilyIndex = indices.graphics_family.value();
-            queue_create_info.queueCount       = 1;
-            queue_create_info.pQueuePriorities = &queue_priority;
+            for (uint32_t queue_family : unique_queue_families) {
+                VkDeviceQueueCreateInfo queue_create_info{};
+                queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+                queue_create_info.queueFamilyIndex = queue_family;
+                queue_create_info.queueCount = 1;
+                queue_create_info.pQueuePriorities = &queue_priority;
+                queue_create_infos.push_back(queue_create_info);
+            }
 
             // No need any feature for now
             VkPhysicalDeviceFeatures device_features{};
 
             VkDeviceCreateInfo create_info{};
             create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-            create_info.pQueueCreateInfos    = &queue_create_info;
-            create_info.queueCreateInfoCount = 1;
+            create_info.pQueueCreateInfos    = queue_create_infos.data();
+            create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());;
             create_info.pEnabledFeatures     = &device_features;
 
             create_info.enabledExtensionCount = 0;
@@ -402,6 +436,7 @@ class HelloTriangleApplication {
 
             // Get queues' handle
             vkGetDeviceQueue(device, indices.graphics_family.value(), 0, &graphics_queue);
+            vkGetDeviceQueue(device, indices.present_family.value(), 0, &present_queue);
         }
 };
 
