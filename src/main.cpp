@@ -79,6 +79,8 @@ class HelloTriangleApplication {
         VkInstance               instance;        // The instance of Vulkan library
         VkDebugUtilsMessengerEXT debug_messenger; // Manually-handled debug messenger
         VkPhysicalDevice         physical_device = VK_NULL_HANDLE; // Physical device like graphic card
+        VkDevice                 device;          // Logical Device. Important!
+        VkQueue                  graphics_queue;  // Queues along with logical device
 
         // Initialize GLFW window
         void initWindow() {
@@ -97,6 +99,7 @@ class HelloTriangleApplication {
             createInstance();
             setupDebugMessenger();
             pickPhysicalDevice();
+            createLogicalDevice();
         }
 
         void mainLoop() {
@@ -109,6 +112,8 @@ class HelloTriangleApplication {
         }
 
         void cleanup() {
+            vkDestroyDevice(device, nullptr);
+
             if (enable_validation_layers) {
                 DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
             }
@@ -354,6 +359,49 @@ class HelloTriangleApplication {
             }
 
             return indices;
+        }
+
+
+        //////////////////////////////////////////////////////
+        // Logical device
+        //////////////////////////////////////////////////////
+        void createLogicalDevice() {
+            QueueFamilyIndices indices = findQueueFamilies(physical_device);
+
+             // influence the scheduling of command buffer execution using floating 
+             // point numbers between 0.0 and 1.0.
+            float queue_priority = 1.0f;
+            
+            VkDeviceQueueCreateInfo queue_create_info{};
+            queue_create_info.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queue_create_info.queueFamilyIndex = indices.graphics_family.value();
+            queue_create_info.queueCount       = 1;
+            queue_create_info.pQueuePriorities = &queue_priority;
+
+            // No need any feature for now
+            VkPhysicalDeviceFeatures device_features{};
+
+            VkDeviceCreateInfo create_info{};
+            create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+            create_info.pQueueCreateInfos    = &queue_create_info;
+            create_info.queueCreateInfoCount = 1;
+            create_info.pEnabledFeatures     = &device_features;
+
+            create_info.enabledExtensionCount = 0;
+            if (enable_validation_layers) {
+                create_info.enabledLayerCount   = static_cast<uint32_t>(validation_layers.size());
+                create_info.ppEnabledLayerNames = validation_layers.data();
+            }
+            else {
+                create_info.enabledLayerCount = 0;
+            }
+
+            if (vkCreateDevice(physical_device, &create_info, nullptr, &device) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create logical device!");
+            }
+
+            // Get queues' handle
+            vkGetDeviceQueue(device, indices.graphics_family.value(), 0, &graphics_queue);
         }
 };
 
