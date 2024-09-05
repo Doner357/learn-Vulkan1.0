@@ -109,6 +109,8 @@ class HelloTriangleApplication {
         std::vector<VkImage>     swapchain_images;          // The images in swapchain
         VkFormat                 swapchain_images_format;   // The format of swapchain images
         VkExtent2D               swapchain_extent;          // The extent info of swapchain images
+        // Image View objects for swapchain images
+        std::vector<VkImageView> swapchain_image_views;
 
         // Initialize GLFW window
         void initWindow() {
@@ -130,6 +132,7 @@ class HelloTriangleApplication {
             pickPhysicalDevice();
             createLogicalDevice();
             createSwapchain();
+            createImageViews();
         }
 
         void mainLoop() {
@@ -142,6 +145,10 @@ class HelloTriangleApplication {
         }
 
         void cleanup() {
+
+            for (auto image_view : swapchain_image_views) {
+                vkDestroyImageView(device, image_view, nullptr);
+            }
             vkDestroySwapchainKHR(device, swapchain, nullptr);
 
             vkDestroyDevice(device, nullptr);
@@ -622,6 +629,40 @@ class HelloTriangleApplication {
 
                 return actual_extent;
             }
+        }
+
+
+        //////////////////////////////////////////////////////////////////
+        // Image Views for Swapchain
+        //////////////////////////////////////////////////////////////////
+        void createImageViews() {
+            swapchain_image_views.resize(swapchain_images.size());
+
+            for(size_t i = 0; i < swapchain_images.size(); i++) {
+                VkImageViewCreateInfo create_info{};
+                create_info.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+                create_info.image    = swapchain_images[i];
+                create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;   // How to treat the image
+                create_info.format   = swapchain_images_format;
+
+                // Channels swizzle
+                create_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+                create_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+                create_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+                create_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+
+                // "subresourceRange" field describes what the image's purpose is and which part of the image should be accessed.
+                create_info.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+                create_info.subresourceRange.baseMipLevel   = 0;
+                create_info.subresourceRange.levelCount     = 1;
+                create_info.subresourceRange.baseArrayLayer = 0;
+                create_info.subresourceRange.layerCount     = 1;
+
+                if (vkCreateImageView(device, &create_info, nullptr, &swapchain_image_views[i])) {
+                    throw std::runtime_error("failed to create image views!");
+                }
+            }
+
         }
 };
 
