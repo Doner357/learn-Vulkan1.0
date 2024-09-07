@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <limits>
 #include <algorithm>
+#include <fstream>
 
 // Window's width and height
 const uint32_t WIDTH  = 800;
@@ -109,8 +110,7 @@ class HelloTriangleApplication {
         std::vector<VkImage>     swapchain_images;          // The images in swapchain
         VkFormat                 swapchain_images_format;   // The format of swapchain images
         VkExtent2D               swapchain_extent;          // The extent info of swapchain images
-        // Image View objects for swapchain images
-        std::vector<VkImageView> swapchain_image_views;
+        std::vector<VkImageView> swapchain_image_views;     // Image View objects for swapchain images
 
         // Initialize GLFW window
         void initWindow() {
@@ -133,6 +133,7 @@ class HelloTriangleApplication {
             createLogicalDevice();
             createSwapchain();
             createImageViews();
+            createGraphicsPipeline();
         }
 
         void mainLoop() {
@@ -631,10 +632,6 @@ class HelloTriangleApplication {
             }
         }
 
-
-        //////////////////////////////////////////////////////////////////
-        // Image Views for Swapchain
-        //////////////////////////////////////////////////////////////////
         void createImageViews() {
             swapchain_image_views.resize(swapchain_images.size());
 
@@ -663,6 +660,82 @@ class HelloTriangleApplication {
                 }
             }
 
+        }
+
+
+        //////////////////////////////////////////////////////////////////
+        // Graphics Pipelines
+        //////////////////////////////////////////////////////////////////
+        void createGraphicsPipeline() {
+            auto vert_shader_code = readFile("shaders/shader.vert.spv");
+            auto frag_shader_code = readFile("shaders/shader.frag.spv");
+
+            VkShaderModule vert_shader_module = createShaderModule(vert_shader_code);
+            VkShaderModule frag_shader_module = createShaderModule(frag_shader_code);
+
+
+            // Since the shader code has been stored in the pipeline, free the module.
+            vkDestroyShaderModule(device, vert_shader_module, nullptr);
+            vkDestroyShaderModule(device, frag_shader_module, nullptr);
+
+            VkPipelineShaderStageCreateInfo vert_shader_stage_info{};
+            vert_shader_stage_info.sType               = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            // Telling Vulkan in which pipeline stage the shader is going to be used.
+            vert_shader_stage_info.stage               = VK_SHADER_STAGE_VERTEX_BIT;
+            vert_shader_stage_info.module              = vert_shader_module;
+            // Where is the start function entry, "main" function in this case.
+            vert_shader_stage_info.pName               = "main";
+            // Configured at pipeline creation by specifying different values for the constants used in it.
+            vert_shader_stage_info.pSpecializationInfo = nullptr; // nullptr means no such constant
+
+            VkPipelineShaderStageCreateInfo frag_shader_stage_info{};
+            frag_shader_stage_info.sType               = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            frag_shader_stage_info.stage               = VK_SHADER_STAGE_FRAGMENT_BIT;
+            frag_shader_stage_info.module              = frag_shader_module;
+            frag_shader_stage_info.pName               = "main";
+            frag_shader_stage_info.pSpecializationInfo = nullptr;
+
+            VkPipelineShaderStageCreateInfo shader_stages[] = {
+                vert_shader_stage_info,
+                frag_shader_stage_info
+            };
+        }
+
+        // Read \SPIR-V shader byte codes
+        static std::vector<char> readFile(const std::string& filename) {
+            // "std::ios::ate" means read file from the end so we can easily know the size of file.
+            std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+            if (!file.is_open()) {
+                throw std::runtime_error(std::string("failed to open file: ") + filename);
+            }
+
+            size_t file_size = static_cast<size_t>(file.tellg());
+            std::vector<char> buffer(file_size);
+
+            std::cout << "The size of SPIR-V shader \""
+                      << filename << '\"' << ": " << file_size << " bytes\n";
+
+            // Seek back to the start of file then read file.
+            file.seekg(0);
+            file.read(buffer.data(), file_size);
+
+            file.close();
+            return buffer;
+        }
+
+        VkShaderModule createShaderModule(const std::vector<char>& code) {
+            VkShaderModuleCreateInfo create_info {};
+            create_info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+            create_info.codeSize = code.size();
+            create_info.pCode    = reinterpret_cast<const uint32_t*>(code.data());
+
+            VkShaderModule shader_module;
+            if (vkCreateShaderModule(device, &create_info, nullptr, &shader_module) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create shader module!");
+            }
+
+            return shader_module;
         }
 };
 

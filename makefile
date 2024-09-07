@@ -88,6 +88,13 @@ LDFLAGS := -static-libstdc++
 LDLIBS := vulkan-1 glfw3 gdi32
 
 
+# Shaders compiler
+SPV_COMPILER := glslc
+# Shaders Directories
+SPV_SHADERS_SRC_DIR    := $(SRC_DIR)/shaders
+SPV_SHADERS_TARGET_DIR := $(TARGET_DIR)/shaders
+
+
 # ---- Unchangeable ----
 override TARGET := $(call fixexecutable,$(TARGET))
 
@@ -117,11 +124,31 @@ override TARGET_ASSETS_DIRS := $(call extrdir,$(TARGET_ASSETS))
 # Directories needed by object files and dependency files
 override OBJS_MIRROR_DIRS := $(call extrdir,$(OBJS))
 
+# SPIR-V shaders
+# Shaders needed to be compiled
+override SPV_SHADERS_SRCS := $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.vert)  # Vertex Shader
+override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.frag)  # Fragment Shader
+override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.geom)  # Geometry Shader
+override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.comp)  # Compute Shader
+override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.tesc)  # Tessellation Control Shader
+override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.tese)  # Tessellation Evaluation Shader
+override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.rgen)  # Ray Generation Shader
+override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.rahit) # Any-Hit Shader
+override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.rchit) # Closest-Hit Shader
+override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.rmiss) # Miss Shader
+override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.rcall) # Callable Shader
+# Target SPIR-V shaders
+override SPV_SHADERS_TARGETS := $(patsubst $(SPV_SHADERS_SRC_DIR)/%,$(SPV_SHADERS_TARGET_DIR)/%.spv,$(SPV_SHADERS_SRCS))
+# Directories needed by SPIR-V shaders
+override SPV_MIRROR_DIR := $(call extrdir,$(SPV_SHADERS_TARGETS))
+
+
 # Integrate directories need to be created
-override REQUIRED_DIRS := $(sort $(TARGET_DIR) $(TARGET_ASSETS_DIRS) $(OBJS_MIRROR_DIRS))
+override REQUIRED_DIRS := $(sort $(TARGET_DIR) $(TARGET_ASSETS_DIRS) $(OBJS_MIRROR_DIRS) $(SPV_MIRROR_DIR))
+
 
 # Default target
-all: $(BUILDTARGET)
+all: $(BUILDTARGET) $(SPV_SHADERS_TARGETS)
 
 # Rule to link executable
 $(BUILDTARGET): $(OBJS) | $(TARGET_DIR)
@@ -131,14 +158,20 @@ $(BUILDTARGET): $(OBJS) | $(TARGET_DIR)
 
 # Rule to compile source files into object files
 $(OBJ_DIR)/%.o: %.cpp | $(OBJS_MIRROR_DIRS)
-	$(call msg,Compiling C++ source file to object file: $<)
+	$(call msg,Compiling C++ source file "$<" to object file "$@")
 	@$(CXX) $(CXXFLAGS) -c $< -o $@
 	$(call msg,Compiling finished!)
 
 # Rule to compile C source files into object files
 $(OBJ_DIR)/%.o: %.c | $(OBJS_MIRROR_DIRS)
-	$(call msg,Compiling C source file to object file: $<)
+	$(call msg,Compiling C source file "$<" to object file "$@".)
 	@$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(call msg,Compiling finished!)
+
+# For SPIR-V shaders
+$(SPV_SHADERS_TARGET_DIR)/%.spv: $(SPV_SHADERS_SRC_DIR)/% | $(SPV_MIRROR_DIR)
+	$(call msg,Compiling GLSL shader file "$<" to SPIR-V shader "$@".)
+	@$(SPV_COMPILER) $< -o $@
 	$(call msg,Compiling finished!)
 
 # Ensure the build directory exists
@@ -179,7 +212,7 @@ EXECUTE			:= ./$(TARGET)
 EXECUTEFLAGS	:=
 
 # Run method
-run: $(BUILDTARGET) $(TARGET_ASSETS)
+run: all
 	$(call msg,Start running program...)
 	$(call msg,-------------------------- Start Running --------------------------)
 	@cd $(TARGET_DIR) && $(call fixpath, $(EXECUTE)) $(EXECUTEFLAGS)
@@ -198,9 +231,10 @@ $(TARGET_DIR)/%: $(ASSETS_DIR)/% | $(TARGET_ASSETS_DIRS)
 # and executable file
 ####################################################
 # Targets to be clean
-CL_TARGETS := 	$(BUILDTARGET)	    \
-				$(OBJS)			    \
-				$(DEPS)
+CL_TARGETS := 	$(BUILDTARGET)	    		\
+				$(OBJS)			    		\
+				$(DEPS)						\
+				$(SPV_SHADERS_TARGET_DIR)
 
 # Clean up all generated target
 clean:
