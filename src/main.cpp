@@ -112,6 +112,9 @@ class HelloTriangleApplication {
         VkExtent2D               swapchain_extent;          // The extent info of swapchain images
         std::vector<VkImageView> swapchain_image_views;     // Image View objects for swapchain images
 
+        // For pipeline
+        VkPipelineLayout pipeline_layout;
+
         // Initialize GLFW window
         void initWindow() {
             // Initialize GLFW library
@@ -667,12 +670,12 @@ class HelloTriangleApplication {
         // Graphics Pipelines
         //////////////////////////////////////////////////////////////////
         void createGraphicsPipeline() {
+            // -- Programable Shaders --
             auto vert_shader_code = readFile("shaders/shader.vert.spv");
             auto frag_shader_code = readFile("shaders/shader.frag.spv");
 
             VkShaderModule vert_shader_module = createShaderModule(vert_shader_code);
             VkShaderModule frag_shader_module = createShaderModule(frag_shader_code);
-
 
             // Since the shader code has been stored in the pipeline, free the module.
             vkDestroyShaderModule(device, vert_shader_module, nullptr);
@@ -699,6 +702,136 @@ class HelloTriangleApplication {
                 vert_shader_stage_info,
                 frag_shader_stage_info
             };
+
+
+            // -- Vertex layout --
+            // Tell Vulkan the pattern of veticies (similar to glVertexAttribIPointer in OpenGL)
+            VkPipelineVertexInputStateCreateInfo vertex_input_info{};
+            vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+            vertex_input_info.vertexBindingDescriptionCount   = 0;
+            vertex_input_info.pVertexAttributeDescriptions    = nullptr; // Optional
+            vertex_input_info.vertexAttributeDescriptionCount = 0;
+            vertex_input_info.pVertexAttributeDescriptions    = nullptr; // Optional
+
+
+            // -- Vertex Assembly --
+            // The assembly state in pipeline (similar to the "GL_TRIANGLES" part in glDrawArray(...);)
+            VkPipelineInputAssemblyStateCreateInfo input_assembly{};
+            input_assembly.sType                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+            input_assembly.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            input_assembly.primitiveRestartEnable = VK_FALSE;
+
+
+            // -- Viewport --
+            // Create view port for framebuffer
+            VkViewport viewport{};
+            viewport.x        = 0.0f;
+            viewport.y        = 0.0f;
+            viewport.width    = static_cast<float>(swapchain_extent.width);
+            viewport.height   = static_cast<float>(swapchain_extent.height);
+            viewport.minDepth = 0.0f;
+            viewport.maxDepth = 1.0f;
+
+            // Scissor define in which regions pixels will actually be stored.
+            VkRect2D scissor{};
+            scissor.offset = {0, 0};
+            scissor.extent = swapchain_extent;
+
+            VkPipelineViewportStateCreateInfo viewport_state{};
+            viewport_state.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+            viewport_state.viewportCount = 1;
+            viewport_state.pViewports    = &viewport;
+            viewport_state.scissorCount  = 1;
+            viewport_state.pScissors     = &scissor;
+
+
+            // -- Rasterizer -- (Set Depth Testing, Face Culling, etc...)
+            VkPipelineRasterizationStateCreateInfo rasterizer{};
+            rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+            // If set to VK_TRUE, fragments that are beyond the near and far
+            // planes are clamped to them as opposed to discarding them.
+            rasterizer.depthBiasEnable = VK_FALSE;
+            // If set to VK_TRUE, then geometry never passes through the
+            // rasterizer stage. This basically disables any output to the framebuffer.
+            rasterizer.rasterizerDiscardEnable = VK_FALSE;
+            // How fragments are generated for geometry.
+            rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+            // How wide the line should be, thicker than 1.0 requires GPU features
+            rasterizer.lineWidth = 1.0f;
+            // Face culling setting
+            rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+            rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+            // Alter the value of depth depends on constant value
+            rasterizer.depthBiasEnable         = VK_FALSE;
+            rasterizer.depthBiasConstantFactor = 0.0f;  // Optional
+            rasterizer.depthBiasClamp          = 0.0;   // Optional
+            rasterizer.depthBiasSlopeFactor    = 0.0f;  // Optional
+
+
+            // -- Multisampling --
+            VkPipelineMultisampleStateCreateInfo multisampling{};
+            multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+            multisampling.sampleShadingEnable   = VK_FALSE;
+            multisampling.rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT;
+            multisampling.minSampleShading      = 1.0f;     // Optional
+            multisampling.pSampleMask           = nullptr;  // Optional
+            multisampling.alphaToCoverageEnable = VK_FALSE; // Optional
+            multisampling.alphaToOneEnable      = VK_FALSE; // Optional
+
+
+            // -- Depth and stencil testing --
+            // Leave it nullptr
+
+            // -- Color Blending --
+            // Blending setting for each attachment
+            VkPipelineColorBlendAttachmentState color_blend_attachment{};
+            color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
+                                                    VK_COLOR_COMPONENT_G_BIT |
+                                                    VK_COLOR_COMPONENT_B_BIT |
+                                                    VK_COLOR_COMPONENT_A_BIT;
+            color_blend_attachment.blendEnable         = VK_FALSE;
+            color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;            // Optional
+            color_blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;  // Optional
+            color_blend_attachment.colorBlendOp        = VK_BLEND_OP_ADD;       // Optional
+            color_blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;   // Optional
+            color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;  // Optional
+            color_blend_attachment.alphaBlendOp        = VK_BLEND_OP_ADD;       // Optional
+            // The above set up act like following pseudocode
+            /*
+            if (blendEnable) {
+                finalColor.rgb = (srcColorBlendFactor * newColor.rgb) <colorBlendOp> (dstColorBlendFactor * oldColor.rgb);
+                finalColor.a = (srcAlphaBlendFactor * newColor.a) <alphaBlendOp> (dstAlphaBlendFactor * oldColor.a);
+            }
+            else {
+                finalColor = newColor;
+            }
+            finalColor = finalColor & colorWriteMask;
+            */
+
+            // Global blending setting / blending state configuration
+            VkPipelineColorBlendStateCreateInfo color_blending{};
+            color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+            color_blending.logicOpEnable = VK_FALSE;
+            color_blending.logicOp = VK_LOGIC_OP_COPY; // Optional
+            color_blending.attachmentCount = 1;
+            color_blending.pAttachments = &color_blend_attachment;
+            color_blending.blendConstants[0] = 0.0f; // R, Optional
+            color_blending.blendConstants[1] = 0.0f; // G, Optional
+            color_blending.blendConstants[2] = 0.0f; // B, Optional
+            color_blending.blendConstants[3] = 0.0f; // A, Optional
+
+
+            // -- Pipeline Layout (uniform in shader) --
+            VkPipelineLayoutCreateInfo pipeline_layout_info{};
+            pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            pipeline_layout_info.setLayoutCount         = 0;        // Optional
+            pipeline_layout_info.pSetLayouts            = nullptr;  // Optional
+            pipeline_layout_info.pushConstantRangeCount = 0;        // Optional
+            pipeline_layout_info.pPushConstantRanges    = nullptr;  // Optional
+
+            if (vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &pipeline_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create pipeline layout!");
+            }
         }
 
         // Read \SPIR-V shader byte codes
