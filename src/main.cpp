@@ -117,6 +117,9 @@ class HelloTriangleApplication {
         VkPipelineLayout pipeline_layout;
         VkPipeline       graphics_pipeline;
 
+        // For the swapchain's framebuffers
+        std::vector<VkFramebuffer> swapchain_framebuffers;
+
         // Initialize GLFW window
         void initWindow() {
             // Initialize GLFW library
@@ -140,6 +143,7 @@ class HelloTriangleApplication {
             createImageViews();
             createRenderPass();
             createGraphicsPipeline();
+            createFramebuffers();
         }
 
         void mainLoop() {
@@ -152,6 +156,10 @@ class HelloTriangleApplication {
         }
 
         void cleanup() {
+            for (auto framebuffer : swapchain_framebuffers) {
+                vkDestroyFramebuffer(device, framebuffer, nullptr);
+            }
+
             vkDestroyPipeline(device, graphics_pipeline, nullptr);
             vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
             vkDestroyRenderPass(device, render_pass, nullptr);
@@ -976,6 +984,34 @@ class HelloTriangleApplication {
             }
 
             return shader_module;
+        }
+
+
+        //////////////////////////////////////////////////////////////////
+        // Graphics Pipelines
+        //////////////////////////////////////////////////////////////////
+        void createFramebuffers() {
+            swapchain_framebuffers.resize(swapchain_image_views.size());
+
+            // Iterate all the image views and create framebuffers from them
+            for (size_t i = 0; i < swapchain_image_views.size(); i++) {
+                VkImageView attachments[] = {
+                    swapchain_image_views[i]
+                };
+
+                VkFramebufferCreateInfo framebuffer_info{};
+                framebuffer_info.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+                framebuffer_info.renderPass      = render_pass;
+                framebuffer_info.attachmentCount = 1;
+                framebuffer_info.pAttachments    = attachments;
+                framebuffer_info.width           = swapchain_extent.width;
+                framebuffer_info.height          = swapchain_extent.height;
+                framebuffer_info.layers          = 1;
+
+                if (vkCreateFramebuffer(device, &framebuffer_info, nullptr, &swapchain_framebuffers[i]) != VK_SUCCESS) {
+                    throw std::runtime_error("failed to create framebuffer!");
+                }
+            }
         }
 };
 
