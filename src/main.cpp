@@ -115,6 +115,7 @@ class HelloTriangleApplication {
         // For render passes & pipeline
         VkRenderPass     render_pass;
         VkPipelineLayout pipeline_layout;
+        VkPipeline       graphics_pipeline;
 
         // Initialize GLFW window
         void initWindow() {
@@ -151,6 +152,7 @@ class HelloTriangleApplication {
         }
 
         void cleanup() {
+            vkDestroyPipeline(device, graphics_pipeline, nullptr);
             vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
             vkDestroyRenderPass(device, render_pass, nullptr);
 
@@ -714,9 +716,9 @@ class HelloTriangleApplication {
             VkRenderPassCreateInfo render_pass_info{};
             render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
             render_pass_info.attachmentCount = 1;
-            render_pass_info.pAttachments = &color_attachment;
-            render_pass_info.subpassCount = 1;
-            render_pass_info.pSubpasses = &subpass;
+            render_pass_info.pAttachments    = &color_attachment;
+            render_pass_info.subpassCount    = 1;
+            render_pass_info.pSubpasses      = &subpass;
 
             if (vkCreateRenderPass(device, &render_pass_info, nullptr, &render_pass) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create render pass!");
@@ -734,10 +736,6 @@ class HelloTriangleApplication {
 
             VkShaderModule vert_shader_module = createShaderModule(vert_shader_code);
             VkShaderModule frag_shader_module = createShaderModule(frag_shader_code);
-
-            // Since the shader code has been stored in the pipeline, free the module.
-            vkDestroyShaderModule(device, vert_shader_module, nullptr);
-            vkDestroyShaderModule(device, frag_shader_module, nullptr);
 
             VkPipelineShaderStageCreateInfo vert_shader_stage_info{};
             vert_shader_stage_info.sType               = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -762,6 +760,8 @@ class HelloTriangleApplication {
             };
 
 
+            // ---- Fixed States ----
+
             // -- Vertex layout --
             // Tell Vulkan the pattern of veticies (similar to glVertexAttribIPointer in OpenGL)
             VkPipelineVertexInputStateCreateInfo vertex_input_info{};
@@ -781,6 +781,9 @@ class HelloTriangleApplication {
 
 
             // -- Viewport --
+            
+            // We use dynamic state here, which config viewport and scissor in command buffer.
+            /*
             // Create view port for framebuffer
             VkViewport viewport{};
             viewport.x        = 0.0f;
@@ -794,13 +797,25 @@ class HelloTriangleApplication {
             VkRect2D scissor{};
             scissor.offset = {0, 0};
             scissor.extent = swapchain_extent;
+            */
+
+            // -- Dynamic States for Viewport and Scissor --
+            std::vector<VkDynamicState> dynamic_states = {
+                VK_DYNAMIC_STATE_VIEWPORT,
+                VK_DYNAMIC_STATE_SCISSOR
+            };
+
+            VkPipelineDynamicStateCreateInfo dynamic_state{};
+            dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+            dynamic_state.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
+            dynamic_state.pDynamicStates    = dynamic_states.data();
 
             VkPipelineViewportStateCreateInfo viewport_state{};
             viewport_state.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
             viewport_state.viewportCount = 1;
-            viewport_state.pViewports    = &viewport;
+            // viewport_state.pViewports    = &viewport; // We use dynamic state here
             viewport_state.scissorCount  = 1;
-            viewport_state.pScissors     = &scissor;
+            // viewport_state.pScissors     = &scissor;  // We use dynamic state here
 
 
             // -- Rasterizer -- (Set Depth Testing, Face Culling, etc...)
@@ -890,6 +905,40 @@ class HelloTriangleApplication {
             if (vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &pipeline_layout) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create pipeline layout!");
             }
+
+            
+            // -- Graphics pipeline --
+            VkGraphicsPipelineCreateInfo pipeline_info{};
+            pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+            // Programable states
+            pipeline_info.stageCount          = 2;
+            pipeline_info.pStages             = shader_stages;
+            // Fixed states
+            pipeline_info.pVertexInputState   = &vertex_input_info;
+            pipeline_info.pInputAssemblyState = &input_assembly;
+            pipeline_info.pViewportState      = &viewport_state;
+            pipeline_info.pRasterizationState = &rasterizer;
+            pipeline_info.pMultisampleState   = &multisampling;
+            pipeline_info.pDepthStencilState  = nullptr; // Optional
+            pipeline_info.pColorBlendState    = &color_blending;
+            pipeline_info.pDynamicState       = &dynamic_state;
+            // Pipeline layout (uniform)
+            pipeline_info.layout              = pipeline_layout;
+            // Render pass
+            pipeline_info.renderPass          = render_pass;
+            pipeline_info.subpass             = 0;
+            // Base pipeline
+            pipeline_info.basePipelineHandle = VK_NULL_HANDLE;  // Optional
+            pipeline_info.basePipelineIndex  = -1;              // Optional
+
+            if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &graphics_pipeline) != VK_FALSE) {
+                throw std::runtime_error("failed to create graphics pipeline!");
+            }
+            
+
+            // Since the shader code has been stored in the pipeline, free the module.
+            vkDestroyShaderModule(device, vert_shader_module, nullptr);
+            vkDestroyShaderModule(device, frag_shader_module, nullptr);
         }
 
         // Read \SPIR-V shader byte codes
