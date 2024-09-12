@@ -112,7 +112,8 @@ class HelloTriangleApplication {
         VkExtent2D               swapchain_extent;          // The extent info of swapchain images
         std::vector<VkImageView> swapchain_image_views;     // Image View objects for swapchain images
 
-        // For pipeline
+        // For render passes & pipeline
+        VkRenderPass     render_pass;
         VkPipelineLayout pipeline_layout;
 
         // Initialize GLFW window
@@ -136,6 +137,7 @@ class HelloTriangleApplication {
             createLogicalDevice();
             createSwapchain();
             createImageViews();
+            createRenderPass();
             createGraphicsPipeline();
         }
 
@@ -149,6 +151,8 @@ class HelloTriangleApplication {
         }
 
         void cleanup() {
+            vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
+            vkDestroyRenderPass(device, render_pass, nullptr);
 
             for (auto image_view : swapchain_image_views) {
                 vkDestroyImageView(device, image_view, nullptr);
@@ -667,6 +671,60 @@ class HelloTriangleApplication {
 
 
         //////////////////////////////////////////////////////////////////
+        // Render Passes
+        //////////////////////////////////////////////////////////////////
+        void createRenderPass() {
+            // -- Attachment descriptions --
+            VkAttachmentDescription color_attachment{};
+            color_attachment.format         = swapchain_images_format;
+
+            // Set the number of samples for multisampling
+            color_attachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+
+            // Operations for the start and the end of rendering
+            // Note: loadOP, storeOP are for color attachments.
+            //       stencilLoadOp, stencilStoreOp are for stencil attachments.
+            color_attachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            color_attachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+            color_attachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+
+            // Set how to treat the color attachment of the start and the end of render pass.
+            // Note that vulkan's textures and framebuffers are represented by "VkImage" object,
+            // So you have to set the image layout type for the image.
+            color_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            color_attachment.finalLayout   = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+
+            // -- Subpasses and attachments references --
+            VkAttachmentReference color_attachment_ref{};
+            // Specify which attachment to reference by its index in the attachment descriptions array.
+            color_attachment_ref.attachment = 0; 
+            color_attachment_ref.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            VkSubpassDescription subpass{};
+            subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+            subpass.colorAttachmentCount = 1;
+            // The index of the attachment in this array is directly referenced from the
+            // fragment shader with the "layout(location = 0) out vec4" outColor directive!
+            subpass.pColorAttachments    = &color_attachment_ref;
+
+
+            // -- Render pass --
+            VkRenderPassCreateInfo render_pass_info{};
+            render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+            render_pass_info.attachmentCount = 1;
+            render_pass_info.pAttachments = &color_attachment;
+            render_pass_info.subpassCount = 1;
+            render_pass_info.pSubpasses = &subpass;
+
+            if (vkCreateRenderPass(device, &render_pass_info, nullptr, &render_pass) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create render pass!");
+            } 
+        }
+
+
+        //////////////////////////////////////////////////////////////////
         // Graphics Pipelines
         //////////////////////////////////////////////////////////////////
         void createGraphicsPipeline() {
@@ -811,10 +869,10 @@ class HelloTriangleApplication {
             // Global blending setting / blending state configuration
             VkPipelineColorBlendStateCreateInfo color_blending{};
             color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-            color_blending.logicOpEnable = VK_FALSE;
-            color_blending.logicOp = VK_LOGIC_OP_COPY; // Optional
-            color_blending.attachmentCount = 1;
-            color_blending.pAttachments = &color_blend_attachment;
+            color_blending.logicOpEnable     = VK_FALSE;
+            color_blending.logicOp           = VK_LOGIC_OP_COPY; // Optional
+            color_blending.attachmentCount   = 1;
+            color_blending.pAttachments      = &color_blend_attachment;
             color_blending.blendConstants[0] = 0.0f; // R, Optional
             color_blending.blendConstants[1] = 0.0f; // G, Optional
             color_blending.blendConstants[2] = 0.0f; // B, Optional
