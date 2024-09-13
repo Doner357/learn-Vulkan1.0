@@ -117,6 +117,12 @@ class HelloTriangleApplication {
         VkPipelineLayout pipeline_layout;
         VkPipeline       graphics_pipeline;
 
+        // For command pool
+        VkCommandPool   command_pool;
+
+        // For command buffer
+        VkCommandBuffer command_buffer;
+
         // For the swapchain's framebuffers
         std::vector<VkFramebuffer> swapchain_framebuffers;
 
@@ -144,6 +150,8 @@ class HelloTriangleApplication {
             createRenderPass();
             createGraphicsPipeline();
             createFramebuffers();
+            createCommandPool();
+            createCommandBuffer();
         }
 
         void mainLoop() {
@@ -156,6 +164,8 @@ class HelloTriangleApplication {
         }
 
         void cleanup() {
+            vkDestroyCommandPool(device, command_pool, nullptr);
+
             for (auto framebuffer : swapchain_framebuffers) {
                 vkDestroyFramebuffer(device, framebuffer, nullptr);
             }
@@ -988,7 +998,7 @@ class HelloTriangleApplication {
 
 
         //////////////////////////////////////////////////////////////////
-        // Graphics Pipelines
+        // Swapchain's Framebuffers
         //////////////////////////////////////////////////////////////////
         void createFramebuffers() {
             swapchain_framebuffers.resize(swapchain_image_views.size());
@@ -1011,6 +1021,100 @@ class HelloTriangleApplication {
                 if (vkCreateFramebuffer(device, &framebuffer_info, nullptr, &swapchain_framebuffers[i]) != VK_SUCCESS) {
                     throw std::runtime_error("failed to create framebuffer!");
                 }
+            }
+        }
+
+
+        //////////////////////////////////////////////////////////////////
+        // Command Pool
+        //////////////////////////////////////////////////////////////////
+        void createCommandPool() {
+            QueueFamilyIndices queue_family_indices = findQueueFamilies(physical_device);
+
+            // Command pools are created base on the type of queue family
+            VkCommandPoolCreateInfo pool_info{};
+            pool_info.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+            pool_info.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+            pool_info.queueFamilyIndex = queue_family_indices.graphics_family.value();
+
+            if (vkCreateCommandPool(device, &pool_info, nullptr, &command_pool) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create command pool!");
+            }
+        }
+
+
+        //////////////////////////////////////////////////////////////////
+        // Command Buffer
+        //////////////////////////////////////////////////////////////////
+        void createCommandBuffer() {
+            VkCommandBufferAllocateInfo alloc_info{};
+            alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            alloc_info.commandPool        = command_pool;
+            alloc_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            alloc_info.commandBufferCount = 1;
+
+            if (vkAllocateCommandBuffers(device, &alloc_info, &command_buffer) != VK_SUCCESS) {
+                throw std::runtime_error("failed to allocate command buffers!");
+            }
+        }
+
+        // Note that if the command buffer was already recorded once, then a call to
+        // vkBeginCommandBuffer will implicitly reset it. It's not possible to append
+        // commands to a buffer at a later time.
+        void recordCommandBuffer(VkCommandBuffer command_buffer, uint32_t image_index) {
+            VkCommandBufferBeginInfo begin_info{};
+            begin_info.sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            begin_info.flags            = 0;        // Optional
+            begin_info.pInheritanceInfo = nullptr;  // Optional, only relevant for secondary command buffers.
+
+            if (vkBeginCommandBuffer(command_buffer, &begin_info) != VK_SUCCESS) {
+                throw std::runtime_error("failed to begin recording command buffer!");
+            }
+
+            
+            // Start drawing command by beginning the render pass
+            VkRenderPassBeginInfo render_pass_info{};
+            render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            render_pass_info.renderPass = render_pass;
+            render_pass_info.framebuffer = swapchain_framebuffers[image_index];
+            // Define the size of render area
+            render_pass_info.renderArea.offset = {0, 0};
+            render_pass_info.renderArea.extent = swapchain_extent;
+            // Set up clear value
+            VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+            render_pass_info.clearValueCount = 1;
+            render_pass_info.pClearValues    = &clear_color;
+
+            // Begin the render pass
+            // The last parameter controls how the drawing
+            // commands within the render pass will be provided.
+            vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+
+            // Bind the graphics pipeline
+            vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline);
+
+            VkViewport viewport{};
+            viewport.x = 0.0f;
+            viewport.y = 0.0f;
+            viewport.width = static_cast<float>(swapchain_extent.width);
+            viewport.height = static_cast<float>(swapchain_extent.height);
+            viewport.minDepth = 0.0f;
+            viewport.maxDepth = 1.0f;
+            vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+
+            VkRect2D scissor{};
+            scissor.offset = {0, 0};
+            scissor.extent = swapchain_extent;
+            vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+
+            // Do draw call
+            vkCmdDraw(command_buffer, 3, 1, 0, 0);
+            
+            // End the render pass
+            vkCmdEndRenderPass(command_buffer);
+
+            if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
+                throw std::runtime_error("failed to record command buffer!");
             }
         }
 };
