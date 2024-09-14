@@ -1,7 +1,8 @@
-// GLFW will include its own definitions and automatically
-// load the Vulkan header with it.
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+// GLFW will include its own definitions and automatically
+// load the Vulkan header with it.
+
 
 #include <iostream>
 #include <stdexcept>
@@ -126,6 +127,11 @@ class HelloTriangleApplication {
         // For the swapchain's framebuffers
         std::vector<VkFramebuffer> swapchain_framebuffers;
 
+        // For sync objects
+        VkSemaphore image_available_semaphore;
+        VkSemaphore render_finished_semaphore;
+        VkFence     inflight_fence;
+
         // Initialize GLFW window
         void initWindow() {
             // Initialize GLFW library
@@ -152,6 +158,7 @@ class HelloTriangleApplication {
             createFramebuffers();
             createCommandPool();
             createCommandBuffer();
+            createSyncObjects();
         }
 
         void mainLoop() {
@@ -159,11 +166,18 @@ class HelloTriangleApplication {
             // window is closed.
             while (!glfwWindowShouldClose(window)) {
                 glfwPollEvents();
+                drawFrame();
             }
             
+            // Wait for all the operations run on device are complete.
+            vkDeviceWaitIdle(device);
         }
 
         void cleanup() {
+            vkDestroySemaphore(device, image_available_semaphore, nullptr);
+            vkDestroySemaphore(device, render_finished_semaphore, nullptr);
+            vkDestroyFence(device, inflight_fence, nullptr);
+
             vkDestroyCommandPool(device, command_pool, nullptr);
 
             for (auto framebuffer : swapchain_framebuffers) {
@@ -729,6 +743,20 @@ class HelloTriangleApplication {
             // fragment shader with the "layout(location = 0) out vec4" outColor directive!
             subpass.pColorAttachments    = &color_attachment_ref;
 
+            
+            // Deal with subpass dependencies
+            VkSubpassDependency dependency{};
+            // Specify by giving the index of subpass
+            dependency.srcSubpass = VK_SUBPASS_EXTERNAL; // Implicit subpass before or after the render pass
+            dependency.dstSubpass = 0;
+            // Set up the current subpass which state should wait for the previous one
+            dependency.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.srcAccessMask = 0;
+            // Set up which state the current subpass should start waiting,
+            // so the subpass can execute the state before this state.
+            dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
 
             // -- Render pass --
             VkRenderPassCreateInfo render_pass_info{};
@@ -737,6 +765,8 @@ class HelloTriangleApplication {
             render_pass_info.pAttachments    = &color_attachment;
             render_pass_info.subpassCount    = 1;
             render_pass_info.pSubpasses      = &subpass;
+            render_pass_info.dependencyCount = 1;
+            render_pass_info.pDependencies   = &dependency;
 
             if (vkCreateRenderPass(device, &render_pass_info, nullptr, &render_pass) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create render pass!");
@@ -1074,8 +1104,8 @@ class HelloTriangleApplication {
             
             // Start drawing command by beginning the render pass
             VkRenderPassBeginInfo render_pass_info{};
-            render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-            render_pass_info.renderPass = render_pass;
+            render_pass_info.sType       = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            render_pass_info.renderPass  = render_pass;
             render_pass_info.framebuffer = swapchain_framebuffers[image_index];
             // Define the size of render area
             render_pass_info.renderArea.offset = {0, 0};
@@ -1094,10 +1124,10 @@ class HelloTriangleApplication {
             vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline);
 
             VkViewport viewport{};
-            viewport.x = 0.0f;
-            viewport.y = 0.0f;
-            viewport.width = static_cast<float>(swapchain_extent.width);
-            viewport.height = static_cast<float>(swapchain_extent.height);
+            viewport.x        = 0.0f;
+            viewport.y        = 0.0f;
+            viewport.width    = static_cast<float>(swapchain_extent.width);
+            viewport.height   = static_cast<float>(swapchain_extent.height);
             viewport.minDepth = 0.0f;
             viewport.maxDepth = 1.0f;
             vkCmdSetViewport(command_buffer, 0, 1, &viewport);
@@ -1116,6 +1146,91 @@ class HelloTriangleApplication {
             if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
                 throw std::runtime_error("failed to record command buffer!");
             }
+        }
+
+
+        //////////////////////////////////////////////////////////////////
+        // Sync Objects
+        //////////////////////////////////////////////////////////////////
+        void createSyncObjects() {
+            VkSemaphoreCreateInfo semaphore_info{};
+            semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+            VkFenceCreateInfo fence_info{};
+            fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            // This fence should be initialized as signaled so the 
+            // first wait for the available swapchain image won't 
+            // be stuck.
+            fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+            if (vkCreateSemaphore(device, &semaphore_info, nullptr, &image_available_semaphore)
+                != VK_SUCCESS ||
+                vkCreateSemaphore(device, &semaphore_info, nullptr, &render_finished_semaphore)
+                != VK_SUCCESS ||
+                vkCreateFence(device, &fence_info, nullptr, &inflight_fence)
+                != VK_SUCCESS) {
+                    throw std::runtime_error("failed to create semaphore!");
+                }
+        }
+
+
+        //////////////////////////////////////////////////////////////////
+        // Draw Frame
+        //////////////////////////////////////////////////////////////////
+        void drawFrame() {
+            // Wait until the previous frame has finished.
+            vkWaitForFences(device, 1, &inflight_fence, VK_TRUE, UINT64_MAX);
+            // Unsignaled the state of the fence
+            vkResetFences(device, 1, &inflight_fence);
+
+            uint32_t image_index;
+            vkAcquireNextImageKHR(
+                device, swapchain, UINT64_MAX, image_available_semaphore, VK_NULL_HANDLE, &image_index
+            );
+
+            // Reset command buffer to ensure it is able to be recorded.
+            vkResetCommandBuffer(command_buffer, 0);
+
+            // Record the command
+            recordCommandBuffer(command_buffer, image_index);
+
+            // Submit the command buffer
+            VkSubmitInfo submit_info{};
+            submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            // Each entry in the waitStages array corresponds to the semaphore with the same index in pWaitSemaphores.
+            VkSemaphore wait_semaphores[]      = {image_available_semaphore};
+            VkPipelineStageFlags wait_stages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+            submit_info.waitSemaphoreCount     = 1;
+            submit_info.pWaitSemaphores        = wait_semaphores;
+            submit_info.pWaitDstStageMask      = wait_stages;
+
+            submit_info.commandBufferCount = 1;
+            submit_info.pCommandBuffers    = &command_buffer;
+
+            // The semaphores to be signaled once command buffers have finished execution
+            VkSemaphore signal_semaphores[]  = {render_finished_semaphore};
+            submit_info.signalSemaphoreCount = 1;
+            submit_info.pSignalSemaphores    = signal_semaphores;
+
+            if (vkQueueSubmit(graphics_queue, 1, &submit_info, inflight_fence) != VK_SUCCESS) {
+                throw std::runtime_error("failed to submit draw command buffer!");
+            }
+
+
+            // Submitting the result back to the swapchain to have it eventually show up on the screen.
+            VkPresentInfoKHR present_info{};
+            present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+            present_info.waitSemaphoreCount = 1;
+            present_info.pWaitSemaphores    = signal_semaphores;
+            VkSwapchainKHR swapchains[]     = {swapchain};
+            present_info.swapchainCount     = 1;
+            present_info.pSwapchains        = swapchains;
+            present_info.pImageIndices      = &image_index;
+            // This allows you to specify an array of VkResult values to
+            // check for every individual swap chain if presentation was successful.
+            present_info.pResults           = nullptr; // Optional
+
+            vkQueuePresentKHR(present_queue, &present_info);
         }
 };
 
