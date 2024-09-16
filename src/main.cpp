@@ -21,6 +21,9 @@
 const uint32_t WIDTH  = 800;
 const uint32_t HEIGHT = 600;
 
+// How many in-flight frames
+const int MAX_FRAMES_IN_FLIGHT = 2;
+
 const std::vector<const char*> validation_layers = {
     "VK_LAYER_KHRONOS_validation"
 };
@@ -122,15 +125,18 @@ class HelloTriangleApplication {
         VkCommandPool   command_pool;
 
         // For command buffer
-        VkCommandBuffer command_buffer;
+        std::vector<VkCommandBuffer> command_buffers;
 
         // For the swapchain's framebuffers
         std::vector<VkFramebuffer> swapchain_framebuffers;
 
         // For sync objects
-        VkSemaphore image_available_semaphore;
-        VkSemaphore render_finished_semaphore;
-        VkFence     inflight_fence;
+        std::vector<VkSemaphore> image_available_semaphores;
+        std::vector<VkSemaphore> render_finished_semaphores;
+        std::vector<VkFence>     inflight_fences;
+
+        // Current rendering frame
+        uint32_t current_frame = 0;
 
         // Initialize GLFW window
         void initWindow() {
@@ -157,7 +163,7 @@ class HelloTriangleApplication {
             createGraphicsPipeline();
             createFramebuffers();
             createCommandPool();
-            createCommandBuffer();
+            createCommandBuffers();
             createSyncObjects();
         }
 
@@ -174,9 +180,12 @@ class HelloTriangleApplication {
         }
 
         void cleanup() {
-            vkDestroySemaphore(device, image_available_semaphore, nullptr);
-            vkDestroySemaphore(device, render_finished_semaphore, nullptr);
-            vkDestroyFence(device, inflight_fence, nullptr);
+            for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+                vkDestroySemaphore(device, image_available_semaphores[i], nullptr);
+                vkDestroySemaphore(device, render_finished_semaphores[i], nullptr);
+                vkDestroyFence(device, inflight_fences[i], nullptr);                
+            }
+
 
             vkDestroyCommandPool(device, command_pool, nullptr);
 
@@ -237,8 +246,8 @@ class HelloTriangleApplication {
             // Get and print required extensions
             auto required_extensions = getRequiredExtensions();
             std::cout << "required extensions:\n";
-            for (uint32_t i = 0; i < static_cast<uint32_t>(required_extensions.size()); i++) {
-                std::cout << '\t' << required_extensions[i] << '\n';
+            for (auto extension : required_extensions) {
+                std::cout << '\t' << extension << '\n';
             }
             std::cout << '\n';
 
@@ -532,7 +541,7 @@ class HelloTriangleApplication {
             VkDeviceCreateInfo create_info{};
             create_info.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
             create_info.pQueueCreateInfos       = queue_create_infos.data();
-            create_info.queueCreateInfoCount    = static_cast<uint32_t>(queue_create_infos.size());;
+            create_info.queueCreateInfoCount    = static_cast<uint32_t>(queue_create_infos.size());
             create_info.pEnabledFeatures        = &device_features;
             create_info.enabledExtensionCount   = static_cast<uint32_t>(device_extensions.size());
             create_info.ppEnabledExtensionNames = device_extensions.data();
@@ -582,7 +591,7 @@ class HelloTriangleApplication {
             create_info.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
             QueueFamilyIndices indices = findQueueFamilies(physical_device);
-            uint32_t QueueFamilyIndices[] = {
+            uint32_t queue_family_indices[] = {
                 indices.graphics_family.value(),
                 indices.present_family.value()
             };
@@ -590,7 +599,7 @@ class HelloTriangleApplication {
             if (indices.graphics_family != indices.present_family) {
                 create_info.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
                 create_info.queueFamilyIndexCount = 2;
-                create_info.pQueueFamilyIndices   = QueueFamilyIndices;
+                create_info.pQueueFamilyIndices   = queue_family_indices;
             }
             else {
                 create_info.imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE;
@@ -733,7 +742,7 @@ class HelloTriangleApplication {
             // -- Subpasses and attachments references --
             VkAttachmentReference color_attachment_ref{};
             // Specify which attachment to reference by its index in the attachment descriptions array.
-            color_attachment_ref.attachment = 0; 
+            color_attachment_ref.attachment = 0;
             color_attachment_ref.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
             VkSubpassDescription subpass{};
@@ -861,9 +870,9 @@ class HelloTriangleApplication {
             VkPipelineViewportStateCreateInfo viewport_state{};
             viewport_state.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
             viewport_state.viewportCount = 1;
-            // viewport_state.pViewports    = &viewport; // We use dynamic state here
+            // viewport_state.pViewports = &viewport; // We use dynamic state here
             viewport_state.scissorCount  = 1;
-            // viewport_state.pScissors     = &scissor;  // We use dynamic state here
+            // viewport_state.pScissors  = &scissor;  // We use dynamic state here
 
 
             // -- Rasterizer -- (Set Depth Testing, Face Culling, etc...)
@@ -871,7 +880,7 @@ class HelloTriangleApplication {
             rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
             // If set to VK_TRUE, fragments that are beyond the near and far
             // planes are clamped to them as opposed to discarding them.
-            rasterizer.depthBiasEnable = VK_FALSE;
+            rasterizer.depthClampEnable = VK_FALSE;
             // If set to VK_TRUE, then geometry never passes through the
             // rasterizer stage. This basically disables any output to the framebuffer.
             rasterizer.rasterizerDiscardEnable = VK_FALSE;
@@ -880,7 +889,7 @@ class HelloTriangleApplication {
             // How wide the line should be, thicker than 1.0 requires GPU features
             rasterizer.lineWidth = 1.0f;
             // Face culling setting
-            rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+            rasterizer.cullMode  = VK_CULL_MODE_BACK_BIT;
             rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
             // Alter the value of depth depends on constant value
             rasterizer.depthBiasEnable         = VK_FALSE;
@@ -1076,20 +1085,22 @@ class HelloTriangleApplication {
         //////////////////////////////////////////////////////////////////
         // Command Buffer
         //////////////////////////////////////////////////////////////////
-        void createCommandBuffer() {
+        void createCommandBuffers() {
+            command_buffers.resize(MAX_FRAMES_IN_FLIGHT);
+
             VkCommandBufferAllocateInfo alloc_info{};
             alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
             alloc_info.commandPool        = command_pool;
             alloc_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-            alloc_info.commandBufferCount = 1;
+            alloc_info.commandBufferCount = static_cast<uint32_t>(command_buffers.size());
 
-            if (vkAllocateCommandBuffers(device, &alloc_info, &command_buffer) != VK_SUCCESS) {
+            if (vkAllocateCommandBuffers(device, &alloc_info, command_buffers.data()) != VK_SUCCESS) {
                 throw std::runtime_error("failed to allocate command buffers!");
             }
         }
 
         // Note that if the command buffer was already recorded once, then a call to
-        // vkBeginCommandBuffer will implicitly reset it. It's not possible to append
+        // vkBeginCommandBuffer will implicitly reset it (since ). It's not possible to append
         // commands to a buffer at a later time.
         void recordCommandBuffer(VkCommandBuffer command_buffer, uint32_t image_index) {
             VkCommandBufferBeginInfo begin_info{};
@@ -1153,6 +1164,10 @@ class HelloTriangleApplication {
         // Sync Objects
         //////////////////////////////////////////////////////////////////
         void createSyncObjects() {
+            image_available_semaphores.resize(MAX_FRAMES_IN_FLIGHT);
+            render_finished_semaphores.resize(MAX_FRAMES_IN_FLIGHT);
+            inflight_fences.resize(MAX_FRAMES_IN_FLIGHT);
+
             VkSemaphoreCreateInfo semaphore_info{};
             semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
@@ -1163,14 +1178,17 @@ class HelloTriangleApplication {
             // be stuck.
             fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-            if (vkCreateSemaphore(device, &semaphore_info, nullptr, &image_available_semaphore)
-                != VK_SUCCESS ||
-                vkCreateSemaphore(device, &semaphore_info, nullptr, &render_finished_semaphore)
-                != VK_SUCCESS ||
-                vkCreateFence(device, &fence_info, nullptr, &inflight_fence)
-                != VK_SUCCESS) {
-                    throw std::runtime_error("failed to create semaphore!");
-                }
+            for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+                if (vkCreateSemaphore(device, &semaphore_info, nullptr, &image_available_semaphores[i])
+                    != VK_SUCCESS ||
+                    vkCreateSemaphore(device, &semaphore_info, nullptr, &render_finished_semaphores[i])
+                    != VK_SUCCESS ||
+                    vkCreateFence(device, &fence_info, nullptr, &inflight_fences[i])
+                    != VK_SUCCESS) {
+                        throw std::runtime_error("failed to create semaphore!");
+                    }                
+            }
+
         }
 
 
@@ -1179,40 +1197,40 @@ class HelloTriangleApplication {
         //////////////////////////////////////////////////////////////////
         void drawFrame() {
             // Wait until the previous frame has finished.
-            vkWaitForFences(device, 1, &inflight_fence, VK_TRUE, UINT64_MAX);
+            vkWaitForFences(device, 1, &inflight_fences[current_frame], VK_TRUE, UINT64_MAX);
             // Unsignaled the state of the fence
-            vkResetFences(device, 1, &inflight_fence);
+            vkResetFences(device, 1, &inflight_fences[current_frame]);
 
             uint32_t image_index;
             vkAcquireNextImageKHR(
-                device, swapchain, UINT64_MAX, image_available_semaphore, VK_NULL_HANDLE, &image_index
+                device, swapchain, UINT64_MAX, image_available_semaphores[current_frame], VK_NULL_HANDLE, &image_index
             );
 
             // Reset command buffer to ensure it is able to be recorded.
-            vkResetCommandBuffer(command_buffer, 0);
+            vkResetCommandBuffer(command_buffers[current_frame], 0);
 
             // Record the command
-            recordCommandBuffer(command_buffer, image_index);
+            recordCommandBuffer(command_buffers[current_frame], image_index);
 
             // Submit the command buffer
             VkSubmitInfo submit_info{};
             submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
             // Each entry in the waitStages array corresponds to the semaphore with the same index in pWaitSemaphores.
-            VkSemaphore wait_semaphores[]      = {image_available_semaphore};
+            VkSemaphore wait_semaphores[]      = {image_available_semaphores[current_frame]};
             VkPipelineStageFlags wait_stages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
             submit_info.waitSemaphoreCount     = 1;
             submit_info.pWaitSemaphores        = wait_semaphores;
             submit_info.pWaitDstStageMask      = wait_stages;
 
             submit_info.commandBufferCount = 1;
-            submit_info.pCommandBuffers    = &command_buffer;
+            submit_info.pCommandBuffers    = &command_buffers[current_frame];
 
             // The semaphores to be signaled once command buffers have finished execution
-            VkSemaphore signal_semaphores[]  = {render_finished_semaphore};
+            VkSemaphore signal_semaphores[]  = {render_finished_semaphores[current_frame]};
             submit_info.signalSemaphoreCount = 1;
             submit_info.pSignalSemaphores    = signal_semaphores;
 
-            if (vkQueueSubmit(graphics_queue, 1, &submit_info, inflight_fence) != VK_SUCCESS) {
+            if (vkQueueSubmit(graphics_queue, 1, &submit_info, inflight_fences[current_frame]) != VK_SUCCESS) {
                 throw std::runtime_error("failed to submit draw command buffer!");
             }
 
@@ -1231,6 +1249,9 @@ class HelloTriangleApplication {
             present_info.pResults           = nullptr; // Optional
 
             vkQueuePresentKHR(present_queue, &present_info);
+
+            // Update current frame index
+            current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
         }
 };
 
