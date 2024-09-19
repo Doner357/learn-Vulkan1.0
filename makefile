@@ -82,6 +82,9 @@ ASSETS_DIR := assets
 # Compiler flags
 CXXFLAGS := -g -Wall -std=$(CXXVERSION) -I$(INCLUDE_DIR) -Wextra -MMD -MP
 
+# Define Macros
+CXXMACROS := 
+
 # Linker flags
 LDFLAGS := -static-libstdc++
 # Link libraries, this will be append -l prefix automatically
@@ -112,6 +115,9 @@ override OBJS += $(patsubst %.c,$(OBJ_DIR)/%.o,$(C_SRCS))
 
 # Dependency files
 override DEPS := $(OBJS:.o=.d)
+
+# Determine final compile flags
+override CXXFLAGS += $(addprefix -D,$(CXXMACROS))
 
 # Determine final link flags
 override LDFLAGS += $(call libdirflags,$(LIB_DIR)) $(addprefix -l,$(LDLIBS))
