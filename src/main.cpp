@@ -135,8 +135,12 @@ class HelloTriangleApplication {
         std::vector<VkSemaphore> render_finished_semaphores;
         std::vector<VkFence>     inflight_fences;
 
+        // Addtional check to guarantee the recreation of swapchain is needed.
+        bool framebuffer_resized = false;
+
         // Current rendering frame
         uint32_t current_frame = 0;
+
 
         // Initialize GLFW window
         void initWindow() {
@@ -145,11 +149,20 @@ class HelloTriangleApplication {
             // Hint GLFW not to create an OpenGL context
             glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
             // Tell GLFW window the window is unresizable
-            glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+            //glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
             // Create the actuall window
             window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+            glfwSetWindowUserPointer(window, this);
+            glfwSetFramebufferSizeCallback(window, framebuffer_resize_callback);
         }
+
+        // GLFW call back for resize window
+        static void framebuffer_resize_callback(GLFWwindow* window, int width, int height) {
+            auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+            app->framebuffer_resized = true;
+        }
+
 
         void initVulkan() {
             createInstance();
@@ -167,6 +180,7 @@ class HelloTriangleApplication {
             createSyncObjects();
         }
 
+
         void mainLoop() {
             // The application will run until either and error occrus or the
             // window is closed.
@@ -179,28 +193,35 @@ class HelloTriangleApplication {
             vkDeviceWaitIdle(device);
         }
 
+
+        // Cleanup objects for swapchain
+        void cleanupSwapchain() {
+
+            for (auto framebuffer : swapchain_framebuffers) {
+                vkDestroyFramebuffer(device, framebuffer, nullptr);
+            }
+            
+            for (auto image_view : swapchain_image_views) {
+                vkDestroyImageView(device, image_view, nullptr);
+            }
+
+            vkDestroySwapchainKHR(device, swapchain, nullptr);
+        }
+
         void cleanup() {
+            cleanupSwapchain();
+
             for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
                 vkDestroySemaphore(device, image_available_semaphores[i], nullptr);
                 vkDestroySemaphore(device, render_finished_semaphores[i], nullptr);
                 vkDestroyFence(device, inflight_fences[i], nullptr);                
             }
 
-
             vkDestroyCommandPool(device, command_pool, nullptr);
-
-            for (auto framebuffer : swapchain_framebuffers) {
-                vkDestroyFramebuffer(device, framebuffer, nullptr);
-            }
 
             vkDestroyPipeline(device, graphics_pipeline, nullptr);
             vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
             vkDestroyRenderPass(device, render_pass, nullptr);
-
-            for (auto image_view : swapchain_image_views) {
-                vkDestroyImageView(device, image_view, nullptr);
-            }
-            vkDestroySwapchainKHR(device, swapchain, nullptr);
 
             vkDestroyDevice(device, nullptr);
 
@@ -1198,13 +1219,27 @@ class HelloTriangleApplication {
         void drawFrame() {
             // Wait until the previous frame has finished.
             vkWaitForFences(device, 1, &inflight_fences[current_frame], VK_TRUE, UINT64_MAX);
-            // Unsignaled the state of the fence
-            vkResetFences(device, 1, &inflight_fences[current_frame]);
 
             uint32_t image_index;
-            vkAcquireNextImageKHR(
+            // The result of requirement about next image should be store to determine
+            // whether to recreate the swapchain.
+            VkResult result = vkAcquireNextImageKHR(
                 device, swapchain, UINT64_MAX, image_available_semaphores[current_frame], VK_NULL_HANDLE, &image_index
             );
+
+            if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+                recreateSwapchain();
+                return;
+            }
+            else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+                throw std::runtime_error("failed to acquire swpachain image!");
+            }
+
+            // Unsignaled the state of the fence
+            // Note that this must be placed after requiring the swapchain image,
+            // or you might encounter dead lock because of recreation of swapchain,
+            // and the fence isn't signaled.
+            vkResetFences(device, 1, &inflight_fences[current_frame]);
 
             // Reset command buffer to ensure it is able to be recorded.
             vkResetCommandBuffer(command_buffers[current_frame], 0);
@@ -1248,10 +1283,39 @@ class HelloTriangleApplication {
             // check for every individual swap chain if presentation was successful.
             present_info.pResults           = nullptr; // Optional
 
-            vkQueuePresentKHR(present_queue, &present_info);
+            result = vkQueuePresentKHR(present_queue, &present_info);
+
+            if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebuffer_resized) {
+                recreateSwapchain();
+                framebuffer_resized = false;
+            }
+            else if (result != VK_SUCCESS) {
+                throw std::runtime_error("failed to present swapchain image!");
+            }
 
             // Update current frame index
             current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+        }
+
+
+        //////////////////////////////////////////////////////////////////
+        // Swapchain Recreation
+        //////////////////////////////////////////////////////////////////
+        void recreateSwapchain() {
+            int width = 0, height = 0;
+            glfwGetFramebufferSize(window, &width, &height);
+            while (width == 0 || height == 0) {
+                glfwGetFramebufferSize(window, &width, &height);
+                glfwWaitEvents();
+            }
+
+            vkDeviceWaitIdle(device);
+
+            cleanupSwapchain();
+
+            createSwapchain();
+            createImageViews();
+            createFramebuffers();
         }
 };
 
