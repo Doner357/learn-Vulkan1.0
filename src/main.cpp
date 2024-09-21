@@ -1,7 +1,9 @@
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
 // GLFW will include its own definitions and automatically
 // load the Vulkan header with it.
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+
+#include <glm/glm.hpp>
 
 
 #include <iostream>
@@ -16,6 +18,7 @@
 #include <limits>
 #include <algorithm>
 #include <fstream>
+#include <array>
 
 // Window's width and height
 const uint32_t WIDTH  = 800;
@@ -84,6 +87,40 @@ struct SwapchainSupportDetails {
 };
 
 
+struct Vertex {
+    glm::vec2 pos;
+    glm::vec3 color;
+
+    // Same as providing some parameters of glVertexAttribIPointer
+    static VkVertexInputBindingDescription getBindingDescription() {
+        VkVertexInputBindingDescription binding_description{};
+        binding_description.binding   = 0;                              // The index of the binding in the array of bindings.
+        binding_description.stride    = sizeof(Vertex);                 // The number of bytes from one entry to the next
+        binding_description.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;    // Could be per vertex or per instance
+
+        return binding_description;
+    }
+
+    // Same as providing some parameters of glVertexAttribIPointer
+    static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
+        std::array<VkVertexInputAttributeDescription, 2> attribute_descriptions{};
+        
+        // For vertex position
+        attribute_descriptions[0].binding  = 0;
+        attribute_descriptions[0].location = 0;
+        attribute_descriptions[0].format   = VK_FORMAT_R32G32_SFLOAT;
+        attribute_descriptions[0].offset   = offsetof(Vertex, pos);
+        // For vertex color
+        attribute_descriptions[1].binding  = 0;
+        attribute_descriptions[1].location = 1;
+        attribute_descriptions[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
+        attribute_descriptions[1].offset   = offsetof(Vertex, color);
+
+        return attribute_descriptions;
+    }
+};
+
+
 class HelloTriangleApplication {
     public:
         void run() {
@@ -140,6 +177,14 @@ class HelloTriangleApplication {
 
         // Current rendering frame
         uint32_t current_frame = 0;
+
+        // Vertices for traingle
+        const std::vector<Vertex> vertices = {
+             // Position     // Color
+            {{ 0.0f, -0.5f}, { 1.0f,  0.0f,  0.0f}},
+            {{ 0.5f,  0.5f}, { 0.0f,  1.0f,  0.0f}},
+            {{-0.5f,  0.5f}, { 0.0f,  0.0f,  1.0f}}
+        };
 
 
         // Initialize GLFW window
@@ -841,13 +886,16 @@ class HelloTriangleApplication {
             // ---- Fixed States ----
 
             // -- Vertex layout --
-            // Tell Vulkan the pattern of veticies (similar to glVertexAttribIPointer in OpenGL)
+            // Tell Vulkan the pattern of veticies (similar to glVertexAttribIPointer in OpenGL,
+            // but you have to provide the vertex array info by passing descriptions).
+            auto binding_description = Vertex::getBindingDescription();
+            auto attribute_description = Vertex::getAttributeDescriptions();
             VkPipelineVertexInputStateCreateInfo vertex_input_info{};
             vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-            vertex_input_info.vertexBindingDescriptionCount   = 0;
-            vertex_input_info.pVertexAttributeDescriptions    = nullptr; // Optional
-            vertex_input_info.vertexAttributeDescriptionCount = 0;
-            vertex_input_info.pVertexAttributeDescriptions    = nullptr; // Optional
+            vertex_input_info.vertexBindingDescriptionCount   = 1;
+            vertex_input_info.vertexAttributeDescriptionCount = static_cast<uint32_t>(attribute_description.size());
+            vertex_input_info.pVertexBindingDescriptions      = &binding_description;
+            vertex_input_info.pVertexAttributeDescriptions    = attribute_description.data();
 
 
             // -- Vertex Assembly --
