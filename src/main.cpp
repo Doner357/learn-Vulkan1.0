@@ -179,9 +179,11 @@ class HelloTriangleApplication {
         uint32_t current_frame = 0;
 
         // Vertices for traingle
+        VkBuffer vertex_buffer;
+        VkDeviceMemory vertex_buffer_memory;
         const std::vector<Vertex> vertices = {
              // Position     // Color
-            {{ 0.0f, -0.5f}, { 1.0f,  0.0f,  0.0f}},
+            {{ 0.0f, -0.5f}, { 1.0f,  1.0f,  1.0f}},
             {{ 0.5f,  0.5f}, { 0.0f,  1.0f,  0.0f}},
             {{-0.5f,  0.5f}, { 0.0f,  0.0f,  1.0f}}
         };
@@ -221,6 +223,7 @@ class HelloTriangleApplication {
             createGraphicsPipeline();
             createFramebuffers();
             createCommandPool();
+            createVertexBuffer();
             createCommandBuffers();
             createSyncObjects();
         }
@@ -255,6 +258,9 @@ class HelloTriangleApplication {
 
         void cleanup() {
             cleanupSwapchain();
+
+            vkDestroyBuffer(device, vertex_buffer, nullptr);
+            vkFreeMemory(device, vertex_buffer_memory, nullptr);
 
             for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
                 vkDestroySemaphore(device, image_available_semaphores[i], nullptr);
@@ -1152,6 +1158,65 @@ class HelloTriangleApplication {
 
 
         //////////////////////////////////////////////////////////////////
+        // Vertex buffer
+        //////////////////////////////////////////////////////////////////
+        void createVertexBuffer() {
+            VkBufferCreateInfo buffer_info{};
+            buffer_info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            buffer_info.size        = sizeof(vertices[0]) * vertices.size();
+            buffer_info.usage       = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;     // Something like binding buffer to specific type in OpenGL, but allow multiple types.
+            buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;             // The mode to share with different queue
+
+            if (vkCreateBuffer(device, &buffer_info, nullptr, &vertex_buffer) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create vertex buffer!");
+            }
+
+            
+            // Allocate memory for vertex buffer
+            VkMemoryRequirements mem_requirements;
+            vkGetBufferMemoryRequirements(device, vertex_buffer, &mem_requirements);
+
+            VkMemoryAllocateInfo alloc_info{};
+            alloc_info.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            alloc_info.allocationSize  = mem_requirements.size;
+            alloc_info.memoryTypeIndex = findMemoryType(
+                mem_requirements.memoryTypeBits,
+                // Note that the coherent is nessesary to let memory mapping always matches the content of the allocated memory.
+                // Or you can choose to explicitly call the memory flash function.
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+            );
+
+            if (vkAllocateMemory(device, &alloc_info, nullptr, &vertex_buffer_memory) != VK_SUCCESS) {
+                throw std::runtime_error("failed to allocate vertex buffer memory!");
+            }
+
+            
+            // Associate the memory with the buffer
+            vkBindBufferMemory(device, vertex_buffer, vertex_buffer_memory, 0);
+
+
+            // Map and fill the vertex buffer
+            void* data;
+            vkMapMemory(device, vertex_buffer_memory, 0, buffer_info.size, 0, &data);
+            memcpy(data, vertices.data(), buffer_info.size);
+            vkUnmapMemory(device, vertex_buffer_memory);
+        }
+
+        uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties) {
+            VkPhysicalDeviceMemoryProperties mem_properties;
+            vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_properties);
+
+            for (uint32_t i = 0; i < mem_properties.memoryTypeCount; i++) {
+                if ((type_filter & (1 << i)) && (mem_properties.memoryTypes[i].propertyFlags & properties) == properties) {
+                    return i;
+                }
+            }
+
+            throw std::runtime_error("failed to find suitable memory type!");
+        }
+
+
+        //////////////////////////////////////////////////////////////////
         // Command Buffer
         //////////////////////////////////////////////////////////////////
         void createCommandBuffers() {
@@ -1203,6 +1268,10 @@ class HelloTriangleApplication {
             // Bind the graphics pipeline
             vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline);
 
+            VkBuffer vertex_buffers[] = {vertex_buffer};
+            VkDeviceSize offsets[] = {0};
+            vkCmdBindVertexBuffers(command_buffer, 0, 1, vertex_buffers, offsets);
+
             VkViewport viewport{};
             viewport.x        = 0.0f;
             viewport.y        = 0.0f;
@@ -1218,7 +1287,7 @@ class HelloTriangleApplication {
             vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
             // Do draw call
-            vkCmdDraw(command_buffer, 3, 1, 0, 0);
+            vkCmdDraw(command_buffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
             
             // End the render pass
             vkCmdEndRenderPass(command_buffer);
