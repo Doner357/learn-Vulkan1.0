@@ -1158,49 +1158,40 @@ class HelloTriangleApplication {
 
 
         //////////////////////////////////////////////////////////////////
-        // Vertex buffer
+        // Buffer Utilities
         //////////////////////////////////////////////////////////////////
-        void createVertexBuffer() {
+        void createBuffer(
+            VkDeviceSize size,
+            VkBufferUsageFlags usage,
+            VkMemoryPropertyFlags properties,
+            VkBuffer& buffer,
+            VkDeviceMemory& buffer_memory
+        ) {
             VkBufferCreateInfo buffer_info{};
             buffer_info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-            buffer_info.size        = sizeof(vertices[0]) * vertices.size();
-            buffer_info.usage       = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;     // Something like binding buffer to specific type in OpenGL, but allow multiple types.
-            buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;             // The mode to share with different queue
+            buffer_info.size        = size;
+            buffer_info.usage       = usage;                        // Something like binding buffer to specific type in OpenGL, but allow multiple types.
+            buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;    // The mode to share with different queue
 
-            if (vkCreateBuffer(device, &buffer_info, nullptr, &vertex_buffer) != VK_SUCCESS) {
-                throw std::runtime_error("failed to create vertex buffer!");
+            if (vkCreateBuffer(device, &buffer_info, nullptr, &buffer) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create buffer!");
             }
 
-            
-            // Allocate memory for vertex buffer
             VkMemoryRequirements mem_requirements;
-            vkGetBufferMemoryRequirements(device, vertex_buffer, &mem_requirements);
+            vkGetBufferMemoryRequirements(device, buffer, &mem_requirements);
 
+            // Allocate memory for vertex buffer
             VkMemoryAllocateInfo alloc_info{};
-            alloc_info.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-            alloc_info.allocationSize  = mem_requirements.size;
-            alloc_info.memoryTypeIndex = findMemoryType(
-                mem_requirements.memoryTypeBits,
-                // Note that the coherent is nessesary to let memory mapping always matches the content of the allocated memory.
-                // Or you can choose to explicitly call the memory flash function.
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-            );
+            alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            alloc_info.allocationSize = mem_requirements.size;
+            alloc_info.memoryTypeIndex = findMemoryType(mem_requirements.memoryTypeBits, properties);
 
-            if (vkAllocateMemory(device, &alloc_info, nullptr, &vertex_buffer_memory) != VK_SUCCESS) {
-                throw std::runtime_error("failed to allocate vertex buffer memory!");
+            if (vkAllocateMemory(device, &alloc_info, nullptr, &buffer_memory) != VK_SUCCESS) {
+                throw std::runtime_error("failed to allocate buffer memory!");
             }
 
-            
-            // Associate the memory with the buffer
-            vkBindBufferMemory(device, vertex_buffer, vertex_buffer_memory, 0);
-
-
-            // Map and fill the vertex buffer
-            void* data;
-            vkMapMemory(device, vertex_buffer_memory, 0, buffer_info.size, 0, &data);
-            memcpy(data, vertices.data(), buffer_info.size);
-            vkUnmapMemory(device, vertex_buffer_memory);
-        }
+            vkBindBufferMemory(device, buffer, buffer_memory, 0);
+        } 
 
         uint32_t findMemoryType(uint32_t type_filter, VkMemoryPropertyFlags properties) {
             VkPhysicalDeviceMemoryProperties mem_properties;
@@ -1213,6 +1204,87 @@ class HelloTriangleApplication {
             }
 
             throw std::runtime_error("failed to find suitable memory type!");
+        }
+
+        void copyBuffer(VkBuffer src_buffer, VkBuffer dst_buffer, VkDeviceSize size) {
+            VkCommandBufferAllocateInfo alloc_info{};
+            alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            alloc_info.commandPool = command_pool;
+            alloc_info.commandBufferCount = 1;
+
+            VkCommandBuffer command_buffer;
+            vkAllocateCommandBuffers(device, &alloc_info, &command_buffer);
+
+            VkCommandBufferBeginInfo begin_info{};
+            begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+            // Start record command buffer
+            vkBeginCommandBuffer(command_buffer, &begin_info);
+
+            VkBufferCopy copy_region;
+            copy_region.srcOffset = 0;  // Optional
+            copy_region.dstOffset = 0;  // Optional
+            copy_region.size      = size;
+            vkCmdCopyBuffer(command_buffer, src_buffer, dst_buffer, 1, &copy_region);
+
+            vkEndCommandBuffer(command_buffer);
+
+            // Submit command
+            VkSubmitInfo submit_info{};
+            submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submit_info.commandBufferCount = 1;
+            submit_info.pCommandBuffers    = &command_buffer;
+
+            vkQueueSubmit(graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+            vkQueueWaitIdle(graphics_queue);
+
+            vkFreeCommandBuffers(device, command_pool, 1, &command_buffer);
+        }
+
+
+        //////////////////////////////////////////////////////////////////
+        // Vertex buffer
+        //////////////////////////////////////////////////////////////////
+        void createVertexBuffer() {
+            VkDeviceSize buffer_size = sizeof(vertices[0]) * vertices.size();
+
+            // Host visible staging buffer to temporarlly store the vertices data
+            VkBuffer       staging_buffer;
+            VkDeviceMemory staging_buffer_memory;
+            createBuffer(
+                buffer_size,
+                VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                // Note that the coherent is nessesary to let memory mapping always matches the content of the allocated memory.
+                // Or you can choose to explicitly call the memory flash function.
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                staging_buffer,
+                staging_buffer_memory
+            );
+
+            // Map and fill the staging buffer
+            void* data;
+            vkMapMemory(device, staging_buffer_memory, 0, buffer_size, 0, &data);
+            memcpy(data, vertices.data(), buffer_size);
+            vkUnmapMemory(device, staging_buffer_memory);
+
+
+            // Create vertex buffer which is locate in the local memory to optimize the read operation for GPU.
+            createBuffer(
+                buffer_size,
+                VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,    // This generally not able to us vkMapMemory
+                vertex_buffer,
+                vertex_buffer_memory
+            );
+
+            copyBuffer(staging_buffer, vertex_buffer, buffer_size);
+
+            
+            // Clean up staging buffer
+            vkDestroyBuffer(device, staging_buffer, nullptr);
+            vkFreeMemory(device, staging_buffer_memory, nullptr);
         }
 
 
