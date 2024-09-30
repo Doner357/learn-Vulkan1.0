@@ -178,14 +178,21 @@ class HelloTriangleApplication {
         // Current rendering frame
         uint32_t current_frame = 0;
 
-        // Vertices for traingle
+        // Vertices for rectangle
         VkBuffer vertex_buffer;
         VkDeviceMemory vertex_buffer_memory;
         const std::vector<Vertex> vertices = {
              // Position     // Color
-            {{ 0.0f, -0.5f}, { 1.0f,  1.0f,  1.0f}},
-            {{ 0.5f,  0.5f}, { 0.0f,  1.0f,  0.0f}},
-            {{-0.5f,  0.5f}, { 0.0f,  0.0f,  1.0f}}
+            {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},   // Upper left
+            {{ 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},   // Upper right
+            {{ 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}},   // Bottom right
+            {{-0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}}    // Bottom left
+        };
+        // Indices for rectangle
+        VkBuffer index_buffer;
+        VkDeviceMemory index_memory;
+        const std::vector<uint16_t> indices {
+            0, 1, 2, 2, 3, 0    // Clockwise
         };
 
 
@@ -224,6 +231,7 @@ class HelloTriangleApplication {
             createFramebuffers();
             createCommandPool();
             createVertexBuffer();
+            createIndexBuffer();
             createCommandBuffers();
             createSyncObjects();
         }
@@ -258,6 +266,9 @@ class HelloTriangleApplication {
 
         void cleanup() {
             cleanupSwapchain();
+
+            vkDestroyBuffer(device, index_buffer, nullptr);
+            vkFreeMemory(device, index_memory, nullptr);
 
             vkDestroyBuffer(device, vertex_buffer, nullptr);
             vkFreeMemory(device, vertex_buffer_memory, nullptr);
@@ -1289,6 +1300,42 @@ class HelloTriangleApplication {
 
 
         //////////////////////////////////////////////////////////////////
+        // Index buffer
+        //////////////////////////////////////////////////////////////////
+        void createIndexBuffer() {
+            VkDeviceSize buffer_size = sizeof(indices[0]) * indices.size();
+
+            VkBuffer staging_buffer;
+            VkDeviceMemory staging_memory;
+            createBuffer(
+                buffer_size,
+                VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                staging_buffer,
+                staging_memory
+            );
+
+            void* data;
+            vkMapMemory(device, staging_memory, 0, buffer_size, 0, &data);
+            memcpy(data, indices.data(), static_cast<size_t>(buffer_size));
+            vkUnmapMemory(device, staging_memory);
+
+            createBuffer(
+                buffer_size,
+                VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                index_buffer,
+                index_memory
+            );
+
+            copyBuffer(staging_buffer, index_buffer, buffer_size);
+
+            vkDestroyBuffer(device, staging_buffer, nullptr);
+            vkFreeMemory(device, staging_memory, nullptr);
+        }
+
+
+        //////////////////////////////////////////////////////////////////
         // Command Buffer
         //////////////////////////////////////////////////////////////////
         void createCommandBuffers() {
@@ -1343,6 +1390,8 @@ class HelloTriangleApplication {
             VkBuffer vertex_buffers[] = {vertex_buffer};
             VkDeviceSize offsets[] = {0};
             vkCmdBindVertexBuffers(command_buffer, 0, 1, vertex_buffers, offsets);
+            // Bind the index buffer, only one index buffer is allowed
+            vkCmdBindIndexBuffer(command_buffer, index_buffer, 0, VK_INDEX_TYPE_UINT16);
 
             VkViewport viewport{};
             viewport.x        = 0.0f;
@@ -1359,7 +1408,9 @@ class HelloTriangleApplication {
             vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
             // Do draw call
-            vkCmdDraw(command_buffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+            // Use draw index this time
+            vkCmdDrawIndexed(command_buffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+            // vkCmdDraw(command_buffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
             
             // End the render pass
             vkCmdEndRenderPass(command_buffer);
