@@ -3,7 +3,9 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 
 #include <iostream>
@@ -19,6 +21,7 @@
 #include <algorithm>
 #include <fstream>
 #include <array>
+#include <chrono>
 
 // Window's width and height
 const uint32_t WIDTH  = 800;
@@ -121,6 +124,14 @@ struct Vertex {
 };
 
 
+// Structure for model-view-projection matrix
+struct UniformBufferObject {
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 proj;
+};
+
+
 class HelloTriangleApplication {
     public:
         void run() {
@@ -153,10 +164,11 @@ class HelloTriangleApplication {
         VkExtent2D               swapchain_extent;          // The extent info of swapchain images
         std::vector<VkImageView> swapchain_image_views;     // Image View objects for swapchain images
 
-        // For render passes & pipeline
-        VkRenderPass     render_pass;
-        VkPipelineLayout pipeline_layout;
-        VkPipeline       graphics_pipeline;
+        // For render passes & descriptor set layout & pipeline
+        VkRenderPass          render_pass;
+        VkPipelineLayout      pipeline_layout;
+        VkDescriptorSetLayout descriptor_set_layout;
+        VkPipeline            graphics_pipeline;
 
         // For command pool
         VkCommandPool   command_pool;
@@ -195,6 +207,13 @@ class HelloTriangleApplication {
             0, 1, 2, 2, 3, 0    // Clockwise
         };
 
+        // Uniform buffer for transformation matrix
+        // Use multiple buffer to prevent the in-flight frame read the
+        // buffer which is still read by previous frame's draw command.
+        std::vector<VkBuffer>       uniform_buffers;
+        std::vector<VkDeviceMemory> uniform_buffers_memory;
+        std::vector<void*>          uniform_buffers_mapped;
+
 
         // Initialize GLFW window
         void initWindow() {
@@ -227,11 +246,13 @@ class HelloTriangleApplication {
             createSwapchain();
             createImageViews();
             createRenderPass();
+            createDescriptorLayout();
             createGraphicsPipeline();
             createFramebuffers();
             createCommandPool();
             createVertexBuffer();
             createIndexBuffer();
+            createUniformBuffers();
             createCommandBuffers();
             createSyncObjects();
         }
@@ -272,6 +293,13 @@ class HelloTriangleApplication {
 
             vkDestroyBuffer(device, vertex_buffer, nullptr);
             vkFreeMemory(device, vertex_buffer_memory, nullptr);
+
+            for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+                vkDestroyBuffer(device, uniform_buffers[i], nullptr);
+                vkFreeMemory(device, uniform_buffers_memory[i], nullptr);
+            }
+
+            vkDestroyDescriptorSetLayout(device, descriptor_set_layout, nullptr);
 
             for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
                 vkDestroySemaphore(device, image_available_semaphores[i], nullptr);
@@ -867,6 +895,28 @@ class HelloTriangleApplication {
 
 
         //////////////////////////////////////////////////////////////////
+        // Dexcriptor Layout for Uniform Buffer
+        //////////////////////////////////////////////////////////////////
+        void createDescriptorLayout() {
+            VkDescriptorSetLayoutBinding ubo_layout_binding{};
+            ubo_layout_binding.binding            = 0; // Same as binding index in shader
+            ubo_layout_binding.descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            ubo_layout_binding.descriptorCount    = 1;
+            ubo_layout_binding.stageFlags         = VK_SHADER_STAGE_VERTEX_BIT;
+            ubo_layout_binding.pImmutableSamplers = nullptr;
+
+            VkDescriptorSetLayoutCreateInfo layout_info{};
+            layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            layout_info.bindingCount = 1;
+            layout_info.pBindings    = &ubo_layout_binding;
+
+            if (vkCreateDescriptorSetLayout(device, &layout_info, nullptr, &descriptor_set_layout) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create descriptor set layout!");
+            }
+        }
+
+
+        //////////////////////////////////////////////////////////////////
         // Graphics Pipelines
         //////////////////////////////////////////////////////////////////
         void createGraphicsPipeline() {
@@ -1040,8 +1090,8 @@ class HelloTriangleApplication {
             // -- Pipeline Layout (uniform in shader) --
             VkPipelineLayoutCreateInfo pipeline_layout_info{};
             pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-            pipeline_layout_info.setLayoutCount         = 0;        // Optional
-            pipeline_layout_info.pSetLayouts            = nullptr;  // Optional
+            pipeline_layout_info.setLayoutCount         = 1;
+            pipeline_layout_info.pSetLayouts            = &descriptor_set_layout;
             pipeline_layout_info.pushConstantRangeCount = 0;        // Optional
             pipeline_layout_info.pPushConstantRanges    = nullptr;  // Optional
 
@@ -1336,6 +1386,31 @@ class HelloTriangleApplication {
 
 
         //////////////////////////////////////////////////////////////////
+        // Uniform buffers
+        //////////////////////////////////////////////////////////////////
+        void createUniformBuffers() {
+            VkDeviceSize buffer_size = sizeof(UniformBufferObject);
+
+            uniform_buffers.resize(MAX_FRAMES_IN_FLIGHT);
+            uniform_buffers_memory.resize(MAX_FRAMES_IN_FLIGHT);
+            uniform_buffers_mapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+            for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+                createBuffer(
+                    buffer_size,
+                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                    uniform_buffers[i],
+                    uniform_buffers_memory[i]
+                );
+
+                vkMapMemory(device, uniform_buffers_memory[i], 0, buffer_size, 0, &uniform_buffers_mapped[i]);
+
+            }
+        }
+
+
+        //////////////////////////////////////////////////////////////////
         // Command Buffer
         //////////////////////////////////////////////////////////////////
         void createCommandBuffers() {
@@ -1481,6 +1556,9 @@ class HelloTriangleApplication {
             // and the fence isn't signaled.
             vkResetFences(device, 1, &inflight_fences[current_frame]);
 
+            // Update the uniform buffer
+            updateUniformBuffer(current_frame);
+
             // Reset command buffer to ensure it is able to be recorded.
             vkResetCommandBuffer(command_buffers[current_frame], 0);
 
@@ -1535,6 +1613,31 @@ class HelloTriangleApplication {
 
             // Update current frame index
             current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+        }
+
+
+        //////////////////////////////////////////////////////////////////
+        // Uniform buffer updating
+        //////////////////////////////////////////////////////////////////
+        void updateUniformBuffer(uint32_t current_frame) {
+            static auto start_time = std::chrono::high_resolution_clock::now();
+
+            auto current_time = std::chrono::high_resolution_clock::now();
+            float time = std::chrono::duration<float, std::chrono::seconds::period>(
+                            current_time - start_time
+                        ).count();
+            
+            UniformBufferObject ubo{};
+            ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 0.0f));
+            ubo.view  = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+            ubo.proj  = glm::perspective(
+                glm::radians(45.0f), 
+                static_cast<float>(swapchain_extent.width) / swapchain_extent.height,
+                0.1f, 
+                10.0f
+            );
+            ubo.proj[1][1] *= -1;   // Flip the y axis since the y axis point down in Vulkan.
+            memcpy(uniform_buffers_mapped[current_frame], &ubo, sizeof(ubo));
         }
 
 
