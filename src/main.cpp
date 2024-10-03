@@ -126,9 +126,9 @@ struct Vertex {
 
 // Structure for model-view-projection matrix
 struct UniformBufferObject {
-    glm::mat4 model;
-    glm::mat4 view;
-    glm::mat4 proj;
+    alignas(16) glm::mat4 model;
+    alignas(16) glm::mat4 view;
+    alignas(16) glm::mat4 proj;
 };
 
 
@@ -214,6 +214,10 @@ class HelloTriangleApplication {
         std::vector<VkDeviceMemory> uniform_buffers_memory;
         std::vector<void*>          uniform_buffers_mapped;
 
+        // Descriptor Pool for uniform buffers
+        VkDescriptorPool descriptor_pool;
+        std::vector<VkDescriptorSet> descriptor_sets;
+
 
         // Initialize GLFW window
         void initWindow() {
@@ -253,6 +257,8 @@ class HelloTriangleApplication {
             createVertexBuffer();
             createIndexBuffer();
             createUniformBuffers();
+            createDescriptorPool();
+            createDescriptorSets();
             createCommandBuffers();
             createSyncObjects();
         }
@@ -298,6 +304,8 @@ class HelloTriangleApplication {
                 vkDestroyBuffer(device, uniform_buffers[i], nullptr);
                 vkFreeMemory(device, uniform_buffers_memory[i], nullptr);
             }
+
+            vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
 
             vkDestroyDescriptorSetLayout(device, descriptor_set_layout, nullptr);
 
@@ -1026,7 +1034,7 @@ class HelloTriangleApplication {
             rasterizer.lineWidth = 1.0f;
             // Face culling setting
             rasterizer.cullMode  = VK_CULL_MODE_BACK_BIT;
-            rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+            rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             // Alter the value of depth depends on constant value
             rasterizer.depthBiasEnable         = VK_FALSE;
             rasterizer.depthBiasConstantFactor = 0.0f;  // Optional
@@ -1411,6 +1419,64 @@ class HelloTriangleApplication {
 
 
         //////////////////////////////////////////////////////////////////
+        // Descriptor Pool
+        //////////////////////////////////////////////////////////////////
+        void createDescriptorPool() {
+            VkDescriptorPoolSize pool_size{};
+            pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            pool_size.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+            VkDescriptorPoolCreateInfo pool_info{};
+            pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+            pool_info.poolSizeCount = 1;
+            pool_info.pPoolSizes    = &pool_size;
+            pool_info.maxSets       = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+            if (vkCreateDescriptorPool(device, &pool_info, nullptr, &descriptor_pool) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create descriptor pool!");
+            }
+        }
+
+
+        //////////////////////////////////////////////////////////////////
+        // Descriptor Sets
+        //////////////////////////////////////////////////////////////////
+        void createDescriptorSets() {
+            std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptor_set_layout);
+            VkDescriptorSetAllocateInfo alloc_info{};
+            alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            alloc_info.descriptorPool     = descriptor_pool;
+            alloc_info.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+            alloc_info.pSetLayouts        = layouts.data(); // Expects an array of layout matching the number of sets.
+
+            descriptor_sets.resize(MAX_FRAMES_IN_FLIGHT);
+            if (vkAllocateDescriptorSets(device, &alloc_info, descriptor_sets.data()) != VK_SUCCESS) {
+                throw std::runtime_error("failed to allocate descriptor sets!");
+            }
+
+            for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+                VkDescriptorBufferInfo buffer_info{};
+                buffer_info.buffer = uniform_buffers[i];
+                buffer_info.offset = 0;
+                buffer_info.range  = sizeof(UniformBufferObject);
+
+                VkWriteDescriptorSet descriptor_write{};
+                descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptor_write.dstSet           = descriptor_sets[i];
+                descriptor_write.dstBinding       = 0;
+                descriptor_write.dstArrayElement  = 0; // For array descriptors
+                descriptor_write.descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                descriptor_write.descriptorCount  = 1; // How many array elements you want to update
+                descriptor_write.pBufferInfo      = &buffer_info; // |
+                descriptor_write.pImageInfo       = nullptr;      // --> Three choose one
+                descriptor_write.pTexelBufferView = nullptr;      // |
+
+                vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nullptr);
+            }
+        }
+
+
+        //////////////////////////////////////////////////////////////////
         // Command Buffer
         //////////////////////////////////////////////////////////////////
         void createCommandBuffers() {
@@ -1482,6 +1548,17 @@ class HelloTriangleApplication {
             scissor.extent = swapchain_extent;
             vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
+            // Bind the uniform buffer
+            vkCmdBindDescriptorSets(
+                command_buffer,
+                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                pipeline_layout,
+                0,
+                1,
+                &descriptor_sets[current_frame],
+                0,
+                nullptr
+            );
             // Do draw call
             // Use draw index this time
             vkCmdDrawIndexed(command_buffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
@@ -1628,7 +1705,7 @@ class HelloTriangleApplication {
                         ).count();
             
             UniformBufferObject ubo{};
-            ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 0.0f));
+            ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
             ubo.view  = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
             ubo.proj  = glm::perspective(
                 glm::radians(45.0f), 
