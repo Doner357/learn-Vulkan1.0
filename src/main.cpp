@@ -6,7 +6,6 @@
 #define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/quaternion.hpp>
 
 
 #include <iostream>
@@ -24,8 +23,6 @@
 #include <array>
 #include <chrono>
 
-#include "headers/camera.hpp"
-
 // Window's width and height
 const uint32_t WIDTH  = 800;
 const uint32_t HEIGHT = 600;
@@ -39,7 +36,6 @@ const std::vector<const char*> validation_layers = {
 
 const std::vector<const char*> device_extensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-    VK_KHR_MAINTENANCE1_EXTENSION_NAME
 };
 
 #ifdef NDEBUG
@@ -141,7 +137,6 @@ class HelloTriangleApplication {
         void run() {
             initWindow();
             initVulkan();
-            initCamera();
             mainLoop();
             cleanup();
         }
@@ -224,16 +219,6 @@ class HelloTriangleApplication {
         std::vector<VkDescriptorSet> descriptor_sets;
 
 
-        // Camera
-        lvk::ArcballCamera camera;
-
-
-        // Time
-        float current_time = 0;
-        float previous_time = 0;
-        float delta_time = 0;
-
-
         // Initialize GLFW window
         void initWindow() {
             // Initialize GLFW library
@@ -247,74 +232,12 @@ class HelloTriangleApplication {
             window = glfwCreateWindow(WIDTH, HEIGHT, reinterpret_cast<const char*>(u8"Learn-Vulkan"), nullptr, nullptr);
             glfwSetWindowUserPointer(window, this);
             glfwSetFramebufferSizeCallback(window, framebuffer_resize_callback);
-            glfwSetScrollCallback(window, scroll_callback);
-            glfwSetCursorPosCallback(window, mouse_callback);
         }
 
         // GLFW call back for resize window
         static void framebuffer_resize_callback(GLFWwindow* window, int width, int height) {
             auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
             app->framebuffer_resized = true;
-        }
-
-        static void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
-            // make sure the viewport matches the new window dimensions; note that width and 
-            // height will be significantly larger than specified on retina displays.
-            glViewport(0, 0, width, height);
-        }
-
-        // glfw: whenever the mouse scroll wheel scrolls, this callback is called
-        static void scroll_callback(GLFWwindow *window, double xoffset, double yoffset) {
-            auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
-            app->camera.radiusMove(static_cast<float>(yoffset));
-        }
-
-        static void mouse_callback(GLFWwindow *window, double x_pos, double y_pos) {
-            static bool   drag_first_time = true;
-            static double pre_x_position  = 0;
-            static double pre_y_position  = 0;
-
-            if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
-
-                if (drag_first_time) {
-                    pre_x_position  = x_pos;
-                    pre_y_position  = y_pos;
-                    drag_first_time = false;
-                }
-                float delta_x = pre_x_position - x_pos;
-                float delta_y = pre_y_position - y_pos;
-
-                auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
-
-                if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
-                    app->camera.centerMove(app->delta_time * delta_x, app->delta_time * -delta_y);
-                }
-                else {
-                    app->camera.spherePosMove(delta_x, delta_y);
-                }
-
-                pre_x_position = x_pos;
-                pre_y_position = y_pos;
-            }
-            if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_RELEASE) {
-                drag_first_time = true;
-            }
-            
-        }
-
-
-        void initCamera() {
-            camera = lvk::ArcballCamera(
-                glm::vec3(0.0f, 0.0f, 2.0f),   // Camera position
-                glm::vec3(0.0f, 0.0f, 0.0f),   // Look at the origin
-                glm::vec3(0.0f, 1.0f, 0.0f),   // Up vector
-                45.0f,                         // Field of view in degrees
-                static_cast<float>(swapchain_extent.width) / swapchain_extent.height, // Aspect ratio
-                0.1f,                          // Near plane
-                100.0f,                        // Far plane
-                15.0f,
-                0.5f
-            );
         }
 
 
@@ -345,20 +268,12 @@ class HelloTriangleApplication {
             // The application will run until either and error occrus or the
             // window is closed.
             while (!glfwWindowShouldClose(window)) {
-                updateClock();
                 glfwPollEvents();
                 drawFrame();
             }
             
             // Wait for all the operations run on device are complete.
             vkDeviceWaitIdle(device);
-        }
-
-        // Update current time and delta time
-        void updateClock() {
-            current_time = static_cast<float>(glfwGetTime());
-            delta_time = current_time - previous_time;
-            previous_time = current_time;
         }
 
 
@@ -1118,7 +1033,7 @@ class HelloTriangleApplication {
             // How wide the line should be, thicker than 1.0 requires GPU features
             rasterizer.lineWidth = 1.0f;
             // Face culling setting
-            rasterizer.cullMode  = VK_CULL_MODE_NONE;
+            rasterizer.cullMode  = VK_CULL_MODE_BACK_BIT;
             rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
             // Alter the value of depth depends on constant value
             rasterizer.depthBiasEnable         = VK_FALSE;
@@ -1621,9 +1536,9 @@ class HelloTriangleApplication {
 
             VkViewport viewport{};
             viewport.x        = 0.0f;
-            viewport.y        = static_cast<float>(swapchain_extent.height);
+            viewport.y        = 0.0f;
             viewport.width    = static_cast<float>(swapchain_extent.width);
-            viewport.height   = -static_cast<float>(swapchain_extent.height);
+            viewport.height   = static_cast<float>(swapchain_extent.height);
             viewport.minDepth = 0.0f;
             viewport.maxDepth = 1.0f;
             vkCmdSetViewport(command_buffer, 0, 1, &viewport);
@@ -1782,20 +1697,23 @@ class HelloTriangleApplication {
         // Uniform buffer updating
         //////////////////////////////////////////////////////////////////
         void updateUniformBuffer(uint32_t current_frame) {
-            /*
             static auto start_time = std::chrono::high_resolution_clock::now();
 
             auto acurrent_time = std::chrono::high_resolution_clock::now();
             float time = std::chrono::duration<float, std::chrono::seconds::period>(
                             acurrent_time - start_time
                         ).count();
-            */
             
             UniformBufferObject ubo{};
-            ubo.model = glm::mat4(1.0f);
-            ubo.view = camera.getViewMat();
-            ubo.proj = camera.getProjectionMat();
-            //ubo.proj[1][1] *= -1;   // Flip the y axis since the y axis point down in Vulkan.
+            ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+            ubo.view  = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+            ubo.proj  = glm::perspective(
+                glm::radians(45.0f), 
+                static_cast<float>(swapchain_extent.width) / swapchain_extent.height,
+                0.1f, 
+                10.0f
+            );
+            ubo.proj[1][1] *= -1;   // Flip the y axis since the y axis point down in Vulkan.
             memcpy(uniform_buffers_mapped[current_frame], &ubo, sizeof(ubo));
         }
 
@@ -1818,7 +1736,6 @@ class HelloTriangleApplication {
             createSwapchain();
             createImageViews();
             createFramebuffers();
-            camera.setAspect(static_cast<float>(swapchain_extent.width) / swapchain_extent.height);
         }
 };
 
