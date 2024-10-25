@@ -1,271 +1,68 @@
-# Deal with the difference of the operating system
-# Usage: $(call function name,...)
-# -------------------------------------------------------------
-# fixpath       : Fix path with backslash
-# mkdir         : Fix make directory call
-# cp            : Fix copy file and directorie call
-# rm            : Fix the remove files and directories call
-# fixexecutable : Fix the different executable file suffix
-ifdef OS
-	fixexecutable = $1.exe
-	rm            = for %%f in ($1) do if exist %%f\* (rmdir /s /q %%f) else if exist %%f (del /q %%f)
-	fixpath       = $(subst /,\,$1)
-	mkdir         = for %%f in ($1) do if not exist %%f mkdir %%f
-	cp            = copy /y $1 $2
-else
-	ifeq ($(shell uname), Linux)
-		fixexecutable = $1
-		rm            = rm -f -r $1
-		fixpath       = $1
-		mkdir         = mkdir -p $1
-		cp            = cp -f -r $1 $2
-	endif
-endif
-
-# Utility functions
-# -------------------------------------------------------------
-# Find all targets in the directory with the specified pattern. Specify the pattern with * to get all contents.
-# Usage: $(call rwildcard,directory,pattern)
-rwildcard = $(wildcard $1/$2) $(foreach d,$(wildcard $1/*),$(call rwildcard,$d,$2))
-# Extract all directories in variable with no "/" suffix, and remove all duplicated directory
-# Usage: $(call extrdir,$(var))
-extrdir = $(sort $(patsubst %/,%,$(dir $1)))
-# Extract all files with its path in a variable. Note that this can't really recognize if a target is 
-# a file or directory. This is just a literal function, if two or more have the same prefix, the longest literal is taken.
-# Usage: $(call extrfile,$(var))
-extrfile = $(filter-out $(patsubst %/,%,$(dir $1)),$1)
-# Extract all directories in specified directory with no "/" suffix, and remove all duplicated directory
-# Usage: $(call dirwildcard,directory name)
-dirwildcard = $(call extrdir,$(call rwildcard,$1,*))
-# Extract all files in specified directory. Note that this can't really recognize if a target is 
-# a file or directory. This is just a literal function, if two or more have the same prefix, the longest literal is taken.
-# So this function can also be used to find deepest level target in each folder in a directory.
-# Usage: $(call filewildcard,directory name)
-filewildcard = $(call extrfile,$(call rwildcard,$1,*))
-# Automatically scans libraries in specified directory and generates link directory flags.
-# Usage: $(call libdirflags,libraries directory name)
-libdirflags = $(addprefix -L,$(call dirwildcard,$1))
-# Automatically scans libraries in specified directory and generates link flags.
-# Its use is not recommended because link order is important for the linker.
-# Not recommended to use it.
-# Usage: $(call liblinkflags,libraries directory name)
-liblinkflags = $(addprefix -l,$(patsubst lib%,%,$(basename $(notdir $(filter %.lib %.a %.so,$(call filewildcard,$1))))))
-# Message function using echo
-# Usage: $(call msg,message)
-msg = @echo $1
-# Comma
-comma :=,
-
-
 ####################################################
-# Compile
+# C/C++
 ####################################################
 # Target file
-TARGET := learn_vulkan
+target := learn_vulkan
 
 # CPP compiler
-CXX := g++
+compiler := g++
 
 # CPP version
-CXXVERSION := c++20
+cpp_ver := c++20
 
 # Directories
-TARGET_DIR  := build
-SRC_DIR     := src
-INCLUDE_DIR := include
-LIB_DIR     := lib
-OBJ_DIR     := objs
+target_dir  := build
+src_dir     := src
+include_dir := include
+lib_dir     := lib
+obj_dir     := objs
 
 # Directory contains resources for program
-ASSETS_DIR := assets
+assets_dir := assets
+
+# If you need to connect to external include and library directories,
+# note that these directories won't be created when using "make init".
+# Note: When assigning multiple values to the same variable in a Makefile,
+# remember to add a backslash (\) at the end of each line.
+ext_include_dir := 
+ext_lib_dir     := 
 
 # Compiler flags
-CXXFLAGS := -g -Wall -std=$(CXXVERSION) -I$(INCLUDE_DIR) -Wextra -MMD -MP
+compile_flags := -O5 -g -Wall -Wextra -MMD -MP
 
 # Define Macros
-CXXMACROS := 
+macros := 
 
 # Linker flags
-LDFLAGS := -static-libstdc++
-# Link libraries, this will be append -l prefix automatically
-LDLIBS := vulkan-1 glfw3 gdi32
+linker_flags := -static-libstdc++
+# Link libraries, this will be append -l prefix automatically. For example, "gdi32" will become -lgdi32.
+# So just type the libraries name you want to link, like "gdi32 opengl32 pthread".
+libraries := vulkan-1 glfw3 gdi32
 
 
+# Source file suffix configurations (Not recommended to change)
+src_suffix := .cpp .cxx .cp .c++ .CPP .cc .c .C
+
+
+
+####################################################
+# SPIR-V
+####################################################
 # Shaders compiler
-SPV_COMPILER := glslc
+spv_compiler := tools/glslc
+
 # Shaders Directories
-SPV_SHADERS_SRC_DIR    := $(SRC_DIR)/shaders
-SPV_SHADERS_TARGET_DIR := $(TARGET_DIR)/shaders
+spv_shaders_src_dir    := $(src_dir)/shaders
+spv_shaders_target_dir := $(target_dir)/shaders
 
 
-# ---- Unchangeable ----
-override TARGET := $(call fixexecutable,$(TARGET))
-
-# Append directory to target file
-override BUILDTARGET := $(TARGET_DIR)/$(TARGET)
-
-# Source files
-override CPP_SRCS := $(call rwildcard,$(SRC_DIR),*.cpp)
-override C_SRCS   := $(call rwildcard,$(SRC_DIR),*.c)
-override SRCS     := $(CPP_SRCS) $(C_SRCS)
-
-# Object files
-override OBJS := $(patsubst %.cpp,$(OBJ_DIR)/%.o,$(CPP_SRCS))
-override OBJS += $(patsubst %.c,$(OBJ_DIR)/%.o,$(C_SRCS))
-
-# Dependency files
-override DEPS := $(OBJS:.o=.d)
-
-# Determine final compile flags
-override CXXFLAGS += $(addprefix -D,$(CXXMACROS))
-
-# Determine final link flags
-override LDFLAGS += $(call libdirflags,$(LIB_DIR)) $(addprefix -l,$(LDLIBS))
-
-# Assets
-override ASSETS := $(call filewildcard,$(ASSETS_DIR))
-override TARGET_ASSETS := $(ASSETS:$(ASSETS_DIR)/%=$(TARGET_DIR)/%)
-override TARGET_ASSETS_DIRS := $(call extrdir,$(TARGET_ASSETS))
-
-# Directories needed by object files and dependency files
-override OBJS_MIRROR_DIRS := $(call extrdir,$(OBJS))
-
-# SPIR-V shaders
-# Shaders needed to be compiled
-override SPV_SHADERS_SRCS := $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.vert)  # Vertex Shader
-override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.frag)  # Fragment Shader
-override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.geom)  # Geometry Shader
-override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.comp)  # Compute Shader
-override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.tesc)  # Tessellation Control Shader
-override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.tese)  # Tessellation Evaluation Shader
-override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.rgen)  # Ray Generation Shader
-override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.rahit) # Any-Hit Shader
-override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.rchit) # Closest-Hit Shader
-override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.rmiss) # Miss Shader
-override SPV_SHADERS_SRCS += $(call rwildcard,$(SPV_SHADERS_SRC_DIR),*.rcall) # Callable Shader
-# Target SPIR-V shaders
-override SPV_SHADERS_TARGETS := $(patsubst $(SPV_SHADERS_SRC_DIR)/%,$(SPV_SHADERS_TARGET_DIR)/%.spv,$(SPV_SHADERS_SRCS))
-# Directories needed by SPIR-V shaders
-override SPV_MIRROR_DIR := $(call extrdir,$(SPV_SHADERS_TARGETS))
-
-
-# Integrate directories need to be created
-override REQUIRED_DIRS := $(sort $(TARGET_DIR) $(TARGET_ASSETS_DIRS) $(OBJS_MIRROR_DIRS) $(SPV_MIRROR_DIR))
-
-
-# Default target
-all: $(BUILDTARGET) $(SPV_SHADERS_TARGETS)
-
-# Rule to link executable
-$(BUILDTARGET): $(OBJS) | $(TARGET_DIR)
-	$(call msg,Starting linking...)
-	@$(CXX) -o $@ $(OBJS) $(LDFLAGS)
-	$(call msg,Building finished!)
-
-# Rule to compile source files into object files
-$(OBJ_DIR)/%.o: %.cpp | $(OBJS_MIRROR_DIRS)
-	$(call msg,Compiling C++ source file "$<" to object file "$@")
-	@$(CXX) $(CXXFLAGS) -c $< -o $@
-	$(call msg,Compiling finished!)
-
-# Rule to compile C source files into object files
-$(OBJ_DIR)/%.o: %.c | $(OBJS_MIRROR_DIRS)
-	$(call msg,Compiling C source file "$<" to object file "$@".)
-	@$(CXX) $(CXXFLAGS) -c $< -o $@
-	$(call msg,Compiling finished!)
-
-# For SPIR-V shaders
-$(SPV_SHADERS_TARGET_DIR)/%.spv: $(SPV_SHADERS_SRC_DIR)/% | $(SPV_MIRROR_DIR)
-	$(call msg,Compiling GLSL shader file "$<" to SPIR-V shader "$@".)
-	@$(SPV_COMPILER) $< -o $@
-	$(call msg,Compiling finished!)
-
-# Ensure the build directory exists
-$(REQUIRED_DIRS):
-	$(info Deteced missing directory "$@"$(comma) create new one...)
-	@$(call mkdir,$(call fixpath, $@))
-
-
-# Include dependency files if they exist
--include $(DEPS)
+# Source file suffix configurations (Not recommended to change)
+spv_shaders_src_suffix := .vert .frag .geom .tesc .tese .rgen .rahit .rchit .rmiss .rcall
 
 
 ####################################################
-# -- init --
-# This call help you to create the directories
-# stucture which fit this makefile.
 ####################################################
-# Directories to be create
-MKDIRS := 	$(SRC_DIR)		\
-			$(INCLUDE_DIR)	\
-			$(LIB_DIR)		\
-			$(ASSETS_DIR)
-
-# Run method
-init:
-	$(call msg,Starting to initialize workspace...)
-	@$(call mkdir,$(call fixpath,$(MKDIRS)))
-	$(call msg,Initialization completed!)
-	@cd .
-
-
-####################################################
-# -- run --
-# This call help you to compile and run project.
-####################################################
-# File to be executed
-EXECUTE			:= ./$(TARGET)
-EXECUTEFLAGS	:=
-
-# Run method
-run: all
-	$(call msg,Start running program...)
-	$(call msg,-------------------------- Start Running --------------------------)
-	@cd $(TARGET_DIR) && $(call fixpath, $(EXECUTE)) $(EXECUTEFLAGS)
-	$(call msg,-------------------------- End Running --------------------------)
-
-$(TARGET_DIR)/%: $(ASSETS_DIR)/% | $(TARGET_ASSETS_DIRS)
-	$(info Copy asset "$^" into target "$@"...)
-	$(call cp,$(call fixpath,$^),$(call fixpath,$@))
-
-
-####################################################
-# -- clean --
-# This call help you to clean up files generated
-# by compiler.
-# Default are obj files, dependency files and
-# and executable file
-####################################################
-# Targets to be clean
-CL_TARGETS := 	$(BUILDTARGET)	    		\
-				$(OBJS)			    		\
-				$(DEPS)						\
-				$(SPV_SHADERS_TARGET_DIR)
-
-# Clean up all generated target
-clean:
-	$(call msg,Starting to delete created files...)
-	@$(call rm,$(call fixpath,$(CL_TARGETS)))
-	$(call msg,Done!)
-	@cd .
-
-
-####################################################
-# -- clean-all --
-# This call help you to clean up all generated targets.
-# Default are objs and build directories.
-####################################################
-# Targets to be clean
-CLALL_TARGETS := 	$(TARGET_DIR)	\
-					$(OBJ_DIR)
-
-# Clean up all generated target
-clean-all:
-	$(call msg,Starting to delete created files...)
-	@$(call rm,$(call fixpath,$(CLALL_TARGETS)))
-	$(call msg,Done!)
-	@cd .
-
-
-# Phony targets
-.PHONY: all init run clean clean-all
+include tacomake/platform.mk
+include tacomake/functions.mk
+include tacomake/rules.mk
+include tacomake/commands.mk
