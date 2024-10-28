@@ -1587,7 +1587,7 @@ class HelloTriangleApplication {
 
 
         //////////////////////////////////////////////////////////////////
-        // Vertex buffer
+        // Texture Sampler
         //////////////////////////////////////////////////////////////////
         void createTextureSampler() {
             VkSamplerCreateInfo sampler_info{};
