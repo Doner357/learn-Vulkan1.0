@@ -1471,7 +1471,7 @@ class HelloTriangleApplication {
 
             // Create image memory
             VkMemoryRequirements mem_requirements;
-            vkGetImageMemoryRequirements(device, texture_image, &mem_requirements);
+            vkGetImageMemoryRequirements(device, image, &mem_requirements);
 
             VkMemoryAllocateInfo alloc_info{};
             alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -1485,7 +1485,7 @@ class HelloTriangleApplication {
                 throw std::runtime_error("failed to allocate image memroy!");
             }
 
-            vkBindImageMemory(device, texture_image, texture_image_memroy, 0);
+            vkBindImageMemory(device, image, image_memory, 0);
         }
 
         void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout old_layout, VkImageLayout new_layout) {
