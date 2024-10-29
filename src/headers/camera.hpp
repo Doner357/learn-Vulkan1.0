@@ -2,6 +2,7 @@
 #define LEARN_VK_ARCBALL_CAMERA
 
 #define GLM_ENABLE_EXPERIMENTAL
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -55,7 +56,10 @@ namespace lvk {
             glm::quat combined_rotation = pitch * yaw;
 
             // Rotate position around look_at
-            position = combined_rotation * (position - look_at) + look_at;
+            glm::vec3 new_position = combined_rotation * (position - look_at) + look_at;
+            if (glm::abs(glm::dot(glm::normalize(new_position - look_at), glm::vec3(0.0f, 1.0f, 0.0f))) < 0.9999f) {
+                position = new_position;
+            }
             updateCamera();
         }
 
@@ -64,7 +68,8 @@ namespace lvk {
             xoffset *= speed;
             yoffset *= speed;
 
-            glm::vec3 offset = yoffset * cam_up + xoffset * cam_right;
+            glm::vec3 view_up = glm::normalize(glm::cross(cam_right, cam_front));
+            glm::vec3 offset = yoffset * view_up + xoffset * cam_right;
             look_at += offset;
             position += offset;
             updateCamera();
@@ -124,7 +129,7 @@ namespace lvk {
         void updateCamera() {
             cam_front = glm::normalize(look_at - position);
             cam_right = glm::normalize(glm::cross(cam_front, cam_up));
-            cam_up = glm::normalize(glm::cross(cam_right, cam_front));
+            cam_up = glm::vec3(0.0f, 1.0f, 0.0f);
             view_mat = glm::lookAt(position, look_at, cam_up);
             projection = glm::perspective(glm::radians(fov), aspect, near, far);
             view_to_clip = projection * view_mat;
