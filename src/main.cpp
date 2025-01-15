@@ -33,7 +33,7 @@ const uint32_t WIDTH  = 800;
 const uint32_t HEIGHT = 600;
 
 // How many in-flight frames
-const int MAX_FRAMES_IN_FLIGHT = 1;
+const int MAX_FRAMES_IN_FLIGHT = 2;
 
 const std::vector<const char*> validation_layers = {
     "VK_LAYER_KHRONOS_validation"

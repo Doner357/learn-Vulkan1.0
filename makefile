@@ -34,7 +34,7 @@ compile_flags := -O5 -g -Wall -Wextra -MMD -MP
 macros := 
 
 # Linker flags
-linker_flags := -static-libstdc++
+linker_flags := -static
 # Link libraries, this will be append -l prefix automatically. For example, "gdi32" will become -lgdi32.
 # So just type the libraries name you want to link, like "gdi32 opengl32 pthread".
 libraries := vulkan-1 glfw3 gdi32

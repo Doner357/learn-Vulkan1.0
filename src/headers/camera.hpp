@@ -34,45 +34,21 @@ namespace lvk {
             speed(speed),
             mouse_sensitive(mouse_sensitive)
         {
+            up_side_down = cam_up.y < 0;
             updateCamera();
         }
 
         // Mouse scroll for zoom in/out
-        void radiusMove(float yoffset) {
-            glm::vec3 new_pos = position + cam_front * yoffset * mouse_sensitive;
-            if (glm::length(new_pos - look_at) > 0.0001f) {
-                position = new_pos;
-                updateCamera();
-            }
-        }
+        void radiusMove(float yoffset);
 
         // Mouse movement for rotation
-        void spherePosMove(float xoffset, float yoffset) {
-            xoffset *= mouse_sensitive;
-            yoffset *= mouse_sensitive;
-
-            glm::quat yaw = glm::angleAxis(glm::radians(xoffset), cam_up);
-            glm::quat pitch = glm::angleAxis(glm::radians(yoffset), cam_right);
-            glm::quat combined_rotation = pitch * yaw;
-
-            // Rotate position around look_at
-            glm::vec3 new_position = combined_rotation * (position - look_at) + look_at;
-            if (glm::abs(glm::dot(glm::normalize(new_position - look_at), glm::vec3(0.0f, 1.0f, 0.0f))) < 0.9999f) {
-                position = new_position;
-            }
-            updateCamera();
-        }
+        void spherePosMove(float xoffset, float yoffset);
 
         // Look point movement
-        void centerMove(float xoffset, float yoffset) {
-            xoffset *= speed;
-            yoffset *= speed;
+        void centerMove(float xoffset, float yoffset);
 
-            glm::vec3 view_up = glm::normalize(glm::cross(cam_right, cam_front));
-            glm::vec3 offset = yoffset * view_up + xoffset * cam_right;
-            look_at += offset;
-            position += offset;
-            updateCamera();
+        void checkUpSide() {
+            up_side_down = cam_up.y < 0;
         }
 
         // Setters
@@ -120,20 +96,16 @@ namespace lvk {
         float speed;
         float mouse_sensitive;
 
+        // Upside down flag
+        bool up_side_down;
+
         // Camera matrices
         glm::mat4 view_mat;
         glm::mat4 projection;
         glm::mat4 view_to_clip;
 
         // Update camera vectors and matrices
-        void updateCamera() {
-            cam_front = glm::normalize(look_at - position);
-            cam_right = glm::normalize(glm::cross(cam_front, cam_up));
-            cam_up = glm::vec3(0.0f, 1.0f, 0.0f);
-            view_mat = glm::lookAt(position, look_at, cam_up);
-            projection = glm::perspective(glm::radians(fov), aspect, near, far);
-            view_to_clip = projection * view_mat;
-        }
+        void updateCamera(bool use_self_right = false);
     };
 
 } // namespace lvk
