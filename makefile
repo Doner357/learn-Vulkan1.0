@@ -57,7 +57,7 @@ spv_shaders_target_dir := $(target_dir)/shaders
 
 
 # Source file suffix configurations (Not recommended to change)
-spv_shaders_src_suffix := .vert .frag .geom .tesc .tese .rgen .rahit .rchit .rmiss .rcall
+spv_shaders_src_suffix := .vert .frag .geom .tesc .tese .rgen .rahit .rchit .rmiss .rcall .comp
 
 
 ####################################################
